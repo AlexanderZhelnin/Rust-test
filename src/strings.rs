@@ -11,21 +11,21 @@ pub fn compare(s1: &str, s2: &str) -> i32 {
         return 1;
     }
 
-    let mut p1 = s1.chars().peekable();
-    let mut p2 = s2.chars().peekable();
+    let mut p1 = s1.bytes().peekable();
+    let mut p2 = s2.bytes().peekable();
 
     loop {
         match (p1.next(), p2.next()) {
             (Some(c1), Some(c2)) => {
                 // Проверяем, являются ли оба символа цифрами
                 if c1.is_ascii_digit() && c2.is_ascii_digit() {
-                    let mut num1 = (c1 as u8 - b'0') as i32;
-                    let mut num2 = (c2 as u8 - b'0') as i32;
+                    let mut num1 = (c1 - b'0') as i32;
+                    let mut num2 = (c2 - b'0') as i32;
 
                     // Читаем остальные цифры первого числа
                     while let Some(&next) = p1.peek() {
                         if next.is_ascii_digit() {
-                            num1 = num1 * 10 + (next as u8 - b'0') as i32;
+                            num1 = num1 * 10 + (next - b'0') as i32;
                             p1.next();
                         } else {
                             break;
@@ -35,7 +35,7 @@ pub fn compare(s1: &str, s2: &str) -> i32 {
                     // Читаем остальные цифры второго числа
                     while let Some(&next) = p2.peek() {
                         if next.is_ascii_digit() {
-                            num2 = num2 * 10 + (next as u8 - b'0') as i32;
+                            num2 = num2 * 10 + (next - b'0') as i32;
                             p2.next();
                         } else {
                             break;

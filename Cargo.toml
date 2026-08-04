@@ -10,3 +10,8 @@ actix-web = "4.5"
 serde_repr = "0.1"
 futures = "0.3"
 tokio = { version = "1.37", features = ["rt-multi-thread", "macros"] }
+itoa = "1.0.18"
+
+[profile.release]
+lto = "thin"
+codegen-units=1
