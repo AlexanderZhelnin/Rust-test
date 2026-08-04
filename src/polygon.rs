@@ -3,7 +3,11 @@ use crate::models::{Primitive, Rect};
 /// Получить следующий индекс (циклически)
 fn get_next_index(cur_index: usize, len: usize) -> usize {
     let next = cur_index + 2;
-    if next >= len { 0 } else { next }
+    if next >= len {
+        0
+    } else {
+        next
+    }
 }
 
 /// Отсечение слева (оптимизировано)
