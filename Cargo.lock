@@ -221,6 +221,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "futures",
+ "itoa",
  "serde",
  "serde_json",
  "serde_repr",

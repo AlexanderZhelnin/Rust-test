@@ -107,8 +107,7 @@ async fn map_json_query(query: web::Query<MapQuery>) -> HttpResponse {
         &result[..]
     };
 
-    let json = serde_json::to_string(limited_result)
-        .unwrap_or_else(|_| "[]".to_string());
+    let json = serde_json::to_string(limited_result).unwrap_or_else(|_| "[]".to_string());
 
     HttpResponse::Ok()
         .content_type("application/json")
@@ -121,11 +120,19 @@ async fn natural_sort() -> HttpResponse {
     const STR2: &str = "asrgfsadf12321";
 
     let mut result = 0;
+    let mut s1 = String::new();
+    let mut s2 = String::new();
+    let mut buf = itoa::Buffer::new();
     for i in 0..10_000 {
-        // Используем срезы вместо создания новых строк
-        let s1 = format!("{}{}", STR1, i);
-        let s2 = format!("{}{}", STR2, i);
-        result += strings::compare(&s1, &s2) as i32;
+        s1.clear();
+        s1.push_str(STR1);
+        s1.push_str(buf.format(i));
+
+        s2.clear();
+        s2.push_str(STR2);
+        s2.push_str(buf.format(i));
+
+        result += strings::compare(&s1, &s2);
     }
 
     HttpResponse::Ok().body(result.to_string())
@@ -138,7 +145,8 @@ async fn root() -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("Starting Rust server...");
+    let listen_addr = "127.0.0.1:3003";
+    println!("Starting Rust server at {listen_addr}");
 
     HttpServer::new(|| {
         App::new()
@@ -149,7 +157,7 @@ async fn main() -> std::io::Result<()> {
             .route("/mapJSON", web::get().to(map_json_query))
             .route("/naturalsort", web::get().to(natural_sort))
     })
-    .bind("127.0.0.1:3003")?
+    .bind(listen_addr)?
     .run()
     .await
 }
