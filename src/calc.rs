@@ -70,6 +70,7 @@ pub fn optimize(mas: &[f64], l: f64) -> Vec<f64> {
 
 /// Находится ли следующая точка на линии с определённым допуском
 #[inline]
+#[allow(unused)]
 pub fn is_point_on_line(p1: &[f64], p2: &[f64], p: &[f64], l_sq: f64) -> bool {
     // ab = p - p1
     let ab_x = p[0] - p1[0];
