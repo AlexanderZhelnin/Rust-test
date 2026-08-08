@@ -6,6 +6,9 @@ mod polygon;
 mod polyline;
 mod strings;
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 // use actix_web::{web, App, HttpResponse, HttpServer};
 use axum::{Json, Router, extract::Query, http::StatusCode, routing::get};
 use drawer::build;
