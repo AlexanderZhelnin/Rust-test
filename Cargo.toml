@@ -14,6 +14,7 @@ futures = "0.3"
 axum = "0.8.9"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
 itoa = "1.0.18"
+tikv-jemallocator = "0.7.0"
 
 [profile.release]
 rustflags = ["-C", "target-cpu=native" ]
