@@ -64,7 +64,6 @@ pub fn build(ls: &[Legend], pr: &mut DrawProperties1, rect: &mut Rect) -> Vec<IL
         let mut mas = Vec::with_capacity(l.primitives.len());
 
         for obraz in clip_primitives(l, rect) {
-            // Оптимизация: избегаем лишних клонирований
             let mut cs_opt = optimize(&obraz.coords, mashtab);
             translate(&mut cs_opt, pr);
 
