@@ -1,4 +1,7 @@
-cargo-features = ["profile-rustflags"]
+[workspace]
+members = ["xtask"]
+default-members = ["."]
+resolver = "3"
 
 [package]
 name = "api_test"
@@ -6,17 +9,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-actix-web = "4.5"
-serde_repr = "0.1"
-futures = "0.3"
-axum = "0.8.9"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
 itoa = "1.0.18"
+mimalloc = { version = "0.1.52", default-features = false }
+rayon = "1.12.0"
+serde = { version = "1.0.229", default-features = false, features = ["derive", "rc", "std"] }
+serde_json = { version = "1.0.151", default-features = false, features = ["float_roundtrip", "std"] }
+serde_repr = "0.1.21"
+tokio = { version = "1.53.1", default-features = false, features = ["fs", "macros", "net", "rt-multi-thread", "sync"] }
+widestring = { version = "1.2.1", default-features = false, features = ["alloc"] }
 
 [profile.release]
-rustflags = ["-C", "target-cpu=native" ]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
