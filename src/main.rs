@@ -105,7 +105,7 @@ async fn fibonacci() -> String {
 /// Эндпоинт для получения преобразованных геоданных (без реального ответа)
 /// `Json<i32>` повторяет C#: возвращаемый `int` сериализуется как JSON,
 /// а не как строка с типом `text/plain`
-async fn map_query(Query(query): Query<MapQuery>) -> Json<i32> {
+fn map_work(query: MapQuery) -> i32 {
     let x = query.x / 100.0;
     let y = query.y / 100.0;
 
@@ -126,11 +126,17 @@ async fn map_query(Query(query): Query<MapQuery>) -> Json<i32> {
 
     // Как C# `BuildGenerator(...).Count()`: общий `Vec<ILayer>` не создаётся,
     // а уже посчитанный слой освобождается перед построением следующего
-    Json(build_iter(legends, &pr1, &rect1).count() as i32)
+    build_iter(legends, &pr1, &rect1).count() as i32
+}
+
+async fn map_query(Query(query): Query<MapQuery>) -> Json<i32> {
+    let result = run_on_cpu_pool(move || map_work(query)).await;
+
+    Json(result)
 }
 
 /// Эндпоинт для получения преобразованных геоданных с JSON ответом
-async fn map_json_query(Query(query): Query<MapQuery>) -> Response {
+fn map_json_work(query: MapQuery) -> Vec<u8> {
     let x = query.x / 100.0;
     let y = query.y / 100.0;
 
@@ -154,14 +160,18 @@ async fn map_json_query(Query(query): Query<MapQuery>) -> Response {
     // Как и C# Take(5): вычисляем все слои и сохраняем исходный массив живым
     // до конца сериализации, но в JSON передаём только первые пять
     let limited_result = result.get(..5).unwrap_or(&result);
-    let body = json_response::serialize(limited_result);
+    json_response::serialize(limited_result)
+}
+
+async fn map_json_query(Query(query): Query<MapQuery>) -> Response {
+    let body = run_on_cpu_pool(move || map_json_work(query)).await;
 
     json_response::from_bytes(body)
 }
 
 /// Эндпоинт для натуральной сортировки строк
 /// Как в C#, результат `int` возвращается числом JSON
-async fn natural_sort() -> Json<i32> {
+fn natural_sort_work() -> i32 {
     let mut buf = itoa::Buffer::new();
     let mut result = 0;
 
@@ -179,7 +189,72 @@ async fn natural_sort() -> Json<i32> {
         result += strings::compare(s1.as_ustr(), s2.as_ustr());
     }
 
+    result
+}
+
+async fn natural_sort() -> Json<i32> {
+    let result = run_on_cpu_pool(natural_sort_work).await;
+
     Json(result)
+}
+
+fn cpu_parallelism() -> usize {
+    // Это уже выбранное самим Tokio количество worker'ов. Без явной настройки
+    // Tokio получает его через std::thread::available_parallelism()
+    tokio::runtime::Handle::current().metrics().num_workers()
+}
+
+struct CpuExecutor {
+    permits: tokio::sync::Semaphore,
+    pool: rayon::ThreadPool,
+}
+
+// В сравнения с C# это допустимая настройка runtime, .NET Core также
+// выполняет синхронную CPU-работу обработчиков в пуле потоков.
+// Rayon меняет только способ планирования, но не логику и объём вычислений.
+// Сам Tokio также рекомендует выносить длительную CPU-работу из
+// потоков async I/O в отдельный ограниченный executor
+static CPU_EXECUTOR: OnceLock<CpuExecutor> = OnceLock::new();
+
+fn init_cpu_executor(thread_count: usize) {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(thread_count)
+        .thread_name(|index| format!("api-cpu-{index}"))
+        .build()
+        .expect("Failed to create the Rayon thread pool");
+
+    if CPU_EXECUTOR
+        .set(CpuExecutor {
+            permits: tokio::sync::Semaphore::new(thread_count),
+            pool,
+        })
+        .is_err()
+    {
+        panic!("CPU executor has already been initialized");
+    }
+}
+
+fn cpu_executor() -> &'static CpuExecutor {
+    CPU_EXECUTOR
+        .get()
+        .expect("CPU executor has not been initialized")
+}
+
+async fn run_on_cpu_pool<T>(work: impl FnOnce() -> T + Send + 'static) -> T
+where
+    T: Send + 'static,
+{
+    let executor = cpu_executor();
+    let _permit = executor
+        .permits
+        .acquire()
+        .await
+        .expect("CPU executor semaphore was closed");
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    executor.pool.spawn_fifo(move || {
+        let _ = sender.send(work());
+    });
+    receiver.await.expect("Rayon task terminated unexpectedly")
 }
 
 /// Эндпоинт для натуральной сортировки строк (Версия для прикола)
@@ -225,7 +300,10 @@ async fn wait_for_pgo_training_shutdown() {
 #[tokio::main]
 async fn main() {
     let listen_addr = "127.0.0.1:3003";
+    let cpu_threads = cpu_parallelism();
+    init_cpu_executor(cpu_threads);
     get_data();
+    println!("Rayon CPU pool: {cpu_threads} threads");
     println!("Starting Rust server at {listen_addr}");
 
     let app = Router::new()
