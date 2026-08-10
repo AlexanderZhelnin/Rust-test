@@ -1,5 +1,7 @@
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
+use utoipa::ToSchema;
 
 // Типы графических образов (GrTypeEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -123,7 +125,7 @@ impl Default for LegendBlock {
 
 // Заливка легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct LegendFill {
     pub color1: String,
     pub color2: String,
@@ -186,7 +188,7 @@ impl Default for LegendFont {
 
 // Текст легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct LegendText {
     pub mashtab_range: MashtabRange,
     pub mashtab_base: f64,
@@ -215,7 +217,7 @@ impl Default for LegendText {
 
 // Графический примитив
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Primitive {
     pub coords: Vec<f64>,
     pub text_coord_x: f64,
@@ -277,7 +279,7 @@ impl Default for DrawProperties1 {
 }
 
 // Графический образ (IObraz)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct IObraz {
     pub name: String,
     pub coords: Vec<f64>,
@@ -293,8 +295,8 @@ impl Default for IObraz {
 }
 
 // Слой (ILayer)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ILayer {
     pub legend_id: i64,
     pub obrazes: Vec<IObraz>,
@@ -311,7 +313,7 @@ impl Default for ILayer {
 
 // Легенда (ILegend)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Legend {
     pub id: i64,
     #[serde(rename = "type")]
@@ -340,3 +342,6 @@ impl Default for Legend {
         }
     }
 }
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct JsonLayers(Vec<ILayer>);

@@ -6,12 +6,12 @@ mod polygon;
 mod polyline;
 mod strings;
 
-// use actix_web::{web, App, HttpResponse, HttpServer};
 use axum::{Json, Router, extract::Query, http::StatusCode, routing::get};
 use drawer::build;
 use init::init_data;
-use models::{DrawProperties1, ILayer, Rect};
+use models::{DrawProperties1, ILayer, Rect, JsonLayers};
 use std::sync::OnceLock;
+use utoipa::{OpenApi, ToSchema, path};
 
 #[derive(serde::Deserialize)]
 struct MapQuery {
@@ -30,6 +30,11 @@ fn get_data() -> (&'static Vec<models::Legend>, &'static Rect) {
 }
 
 /// Эндпоинт для чтения файла
+#[utoipa::path(
+    get,
+    path = "/readfile",
+    responses((status = 200, description = "Данные прочитанного файла", body = String))
+)]
 async fn read_file() -> (StatusCode, String) {
     match std::fs::read_to_string("data.txt") {
         Ok(content) => (StatusCode::OK, content),
@@ -37,7 +42,12 @@ async fn read_file() -> (StatusCode, String) {
     }
 }
 
-/// Эндпоинт для вычисления числа Фибоначчи (оптимизировано)
+/// Эндпоинт для вычисления числа Фибоначчи
+#[utoipa::path(
+    get,
+    path = "/fibonacci",
+    responses((status = 200, description = "Фибоначчи", body = String))
+)]
 async fn fibonacci() -> String {
     let mut a: u64 = 0;
     let mut b: u64 = 1;
@@ -52,6 +62,11 @@ async fn fibonacci() -> String {
 }
 
 /// Эндпоинт для получения преобразованных геоданных (без реального ответа)
+#[utoipa::path(
+    get,
+    path = "/map",
+    responses((status = 200, description = "Получение преобразованных геоданных (тест без реального ответа)", body = JsonLayers))
+)]
 async fn map_query(Query(query): Query<MapQuery>) -> (StatusCode, String) {
     let x = query.x / 100.0;
     let y = query.y / 100.0;
@@ -78,6 +93,11 @@ async fn map_query(Query(query): Query<MapQuery>) -> (StatusCode, String) {
 }
 
 /// Эндпоинт для получения преобразованных геоданных с JSON ответом
+#[utoipa::path(
+    get,
+    path = "/mapJSON",
+    responses((status = 200, description = "Получение преобразованных геоданных", body = JsonLayers))
+)]
 async fn map_json_query(Query(query): Query<MapQuery>) -> (StatusCode, Json<Vec<ILayer>>) {
     let x = query.x / 100.0;
     let y = query.y / 100.0;
@@ -111,6 +131,11 @@ async fn map_json_query(Query(query): Query<MapQuery>) -> (StatusCode, Json<Vec<
 }
 
 /// Эндпоинт для натуральной сортировки строк
+#[utoipa::path(
+    get,
+    path = "/naturalsort",
+    responses((status = 200, description = "Натуральное сравнение 10000 пар строк", body = String))
+)]
 async fn natural_sort() -> (StatusCode, String) {
     const STR1: &str = "asrgfsadf12421";
     const STR2: &str = "asrgfsadf12321";
@@ -174,6 +199,10 @@ async fn root() -> &'static str {
     "Hello World rust!"
 }
 
+#[derive(OpenApi)]
+#[openapi(paths(read_file, fibonacci, map_query, map_json_query, natural_sort))]
+struct ApiDoc;
+
 #[tokio::main]
 async fn main() {
     let listen_addr = "127.0.0.1:3003";
@@ -186,7 +215,9 @@ async fn main() {
         .route("/map", get(map_query))
         .route("/mapJSON", get(map_json_query))
         .route("/naturalsort", get(natural_sort))
-        .route("/naturalsorthack", get(natural_sort_hack));
+        .route("/naturalsorthack", get(natural_sort_hack))
+        .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger")
+            .url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
