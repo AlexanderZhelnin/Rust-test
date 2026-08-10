@@ -6,6 +6,7 @@ mod polygon;
 mod polyline;
 mod strings;
 
+use arrayvec::ArrayString;
 use axum::{Json, Router, extract::Query, http::StatusCode, routing::get};
 use drawer::build;
 use init::init_data;
@@ -141,22 +142,18 @@ async fn natural_sort() -> (StatusCode, String) {
     const STR2: &str = "asrgfsadf12321";
     let mut buf = itoa::Buffer::new();
 
-    let str1_len = STR1.len();
-    let str2_len = STR2.len();
+    const MAX_S1: usize = STR1.len() + "10000".len();
+    const MAX_S2: usize = STR2.len() + "10000".len();
 
     let mut result = 0;
     for i in 0..10_000 {
-        // let s1 = format!("{}{}", STR1, i);
-        // let s2 = format!("{}{}", STR2, i);
-
         let i_str = buf.format(i);
-        let i_len = i_str.len();
 
-        let mut s1 = String::with_capacity(str1_len + i_len);
+        let mut s1 = ArrayString::<MAX_S1>::new();
         s1.push_str(STR1);
         s1.push_str(i_str);
 
-        let mut s2 = String::with_capacity(str2_len + i_len);
+        let mut s2 = ArrayString::<MAX_S2>::new();
         s2.push_str(STR2);
         s2.push_str(i_str);
 
