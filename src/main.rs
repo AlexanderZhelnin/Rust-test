@@ -142,18 +142,22 @@ async fn natural_sort() -> (StatusCode, String) {
     const STR2: &str = "asrgfsadf12321";
     let mut buf = itoa::Buffer::new();
 
-    const MAX_S1: usize = STR1.len() + "10000".len();
-    const MAX_S2: usize = STR2.len() + "10000".len();
+    // const MAX_S1: usize = STR1.len() + "10000".len();
+    // const MAX_S2: usize = STR2.len() + "10000".len();
 
     let mut result = 0;
     for i in 0..10_000 {
         let i_str = buf.format(i);
 
-        let mut s1 = ArrayString::<MAX_S1>::new();
+        let mut s1 = String::with_capacity(str1_len + i_len);
+        //Было предложение сделать ArrayString - но он хранить данные в стеке. а задумка была сделать именно 10000 пар строк и сравнить эти пары
+        //let mut s1 = ArrayString::<MAX_S1>::new();
         s1.push_str(STR1);
         s1.push_str(i_str);
 
-        let mut s2 = ArrayString::<MAX_S2>::new();
+        let mut s2 = String::with_capacity(str2_len + i_len);
+        //Было предложение сделать ArrayString - но он хранить данные в стеке. а задумка была сделать именно 10000 пар строк и сравнить эти пары
+        // let mut s2 = ArrayString::<MAX_S2>::new();
         s2.push_str(STR2);
         s2.push_str(i_str);
 
