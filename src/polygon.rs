@@ -15,7 +15,7 @@ fn clip_left(coords: &[f64], left: f64) -> Vec<f64> {
     let mut pl = Vec::with_capacity(coords.len() * 2);
     let mut cur_index = 0;
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
     if px1 >= left {
         pl.push(px1);
@@ -42,6 +42,10 @@ fn clip_left(coords: &[f64], left: f64) -> Vec<f64> {
             pl.push(left);
             pl.push(intersect_y);
         }
+
+        // Как в C#: сдвигаем начало ребра в его конец, чтобы сохранить тот же
+        // последовательный обход контура и порядок вычисления пересечений
+        (px1, py1) = (px2, py2);
     }
 
     pl
@@ -56,7 +60,7 @@ fn clip_right(coords: &[f64], right: f64) -> Vec<f64> {
     let mut pl = Vec::with_capacity(coords.len() * 2);
     let mut cur_index = 0;
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
     if px1 <= right {
         pl.push(px1);
@@ -84,6 +88,8 @@ fn clip_right(coords: &[f64], right: f64) -> Vec<f64> {
             pl.push(right);
             pl.push(intersect_y);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
     pl
@@ -98,7 +104,7 @@ fn clip_bottom(coords: &[f64], bottom: f64) -> Vec<f64> {
     let mut pl = Vec::with_capacity(coords.len() * 2);
     let mut cur_index = 0;
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
     if py1 >= bottom {
         pl.push(px1);
@@ -125,6 +131,8 @@ fn clip_bottom(coords: &[f64], bottom: f64) -> Vec<f64> {
             pl.push(intersect_x);
             pl.push(bottom);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
     pl
@@ -139,7 +147,7 @@ fn clip_top(coords: &[f64], top: f64) -> Vec<f64> {
     let mut pl = Vec::with_capacity(coords.len() * 2);
     let mut cur_index = 0;
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
     if py1 <= top {
         pl.push(px1);
@@ -166,6 +174,8 @@ fn clip_top(coords: &[f64], top: f64) -> Vec<f64> {
             pl.push(intersect_x);
             pl.push(top);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
     pl

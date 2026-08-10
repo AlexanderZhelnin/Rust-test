@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
+use std::sync::Arc;
 
 // Типы графических образов (GrTypeEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -123,7 +124,7 @@ impl Default for LegendBlock {
 
 // Заливка легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct LegendFill {
     pub color1: String,
     pub color2: String,
@@ -186,7 +187,7 @@ impl Default for LegendFont {
 
 // Текст легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct LegendText {
     pub mashtab_range: MashtabRange,
     pub mashtab_base: f64,
@@ -215,14 +216,16 @@ impl Default for LegendText {
 
 // Графический примитив
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Primitive {
     pub coords: Vec<f64>,
     pub text_coord_x: f64,
     pub text_coord_y: f64,
     pub text_angle: f64,
     pub rect: Rect,
-    pub name: String,
+    // owning-модель: результаты можно свободно перемещать между
+    // слоями без lifetime-параметров и без копирования содержимого строки
+    pub name: Arc<str>,
 }
 
 impl Default for Primitive {
@@ -233,7 +236,7 @@ impl Default for Primitive {
             text_coord_y: 0.0,
             text_angle: 0.0,
             rect: Rect::default(),
-            name: String::new(),
+            name: Arc::from(""),
         }
     }
 }
@@ -279,39 +282,30 @@ impl Default for DrawProperties1 {
 // Графический образ (IObraz)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IObraz {
-    pub name: String,
+    pub name: Arc<str>,
     pub coords: Vec<f64>,
 }
 
 impl Default for IObraz {
     fn default() -> Self {
         Self {
-            name: String::new(),
+            name: Arc::from(""),
             coords: Vec::new(),
         }
     }
 }
 
 // Слой (ILayer)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ILayer {
     pub legend_id: i64,
     pub obrazes: Vec<IObraz>,
 }
 
-impl Default for ILayer {
-    fn default() -> Self {
-        Self {
-            legend_id: 0,
-            obrazes: Vec::new(),
-        }
-    }
-}
-
 // Легенда (ILegend)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all= "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Legend {
     pub id: i64,
     #[serde(rename = "type")]
