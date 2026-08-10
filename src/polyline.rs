@@ -1,218 +1,235 @@
+use bumpalo::{Bump, collections::Vec as BumpVec};
+
 use crate::models::{Primitive, Rect};
 
-/// Отсечение слева (для полилинии, оптимизировано)
-fn clip_left(coords: &[f64], left: f64) -> Vec<Vec<f64>> {
-    let mut res = Vec::new();
+type Segments<'a> = BumpVec<'a, &'a mut [f64]>;
+
+fn clip_left<'a>(bump: &'a Bump, coords: &[f64], left: f64) -> Segments<'a> {
+    let mut result = Segments::new_in(bump);
     if coords.is_empty() {
-        return res;
+        return result;
     }
 
-    // Предварительно вычисляем значения
-    let (px1, py1) = (coords[0], coords[1]);
-
-    let mut pl = Vec::with_capacity(coords.len());
+    let (mut px1, mut py1) = (coords[0], coords[1]);
+    let mut polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
 
     if px1 >= left {
-        pl.push(px1);
-        pl.push(py1);
+        polyline.push(px1);
+        polyline.push(py1);
     }
 
     for i in (2..coords.len()).step_by(2) {
         let (px2, py2) = (coords[i], coords[i + 1]);
 
         if px1 >= left && px2 >= left {
-            pl.push(px2);
-            pl.push(py2);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if px1 < left && px2 > left {
-            // Вычисляем точку пересечения один раз
-            let intersect_y = (left - px1) * (py2 - py1) / (px2 - px1) + py1;
-            pl.push(left);
-            pl.push(intersect_y);
-            pl.push(px2);
-            pl.push(py2);
+            let y = (left - px1) * (py2 - py1) / (px2 - px1) + py1;
+            polyline.push(left);
+            polyline.push(y);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if px1 > left && px2 < left {
-            let intersect_y = (left - px1) * (py2 - py1) / (px2 - px1) + py1;
-            pl.push(left);
-            pl.push(intersect_y);
-
-            res.push(pl);
-            pl = Vec::with_capacity(coords.len());
+            let y = (left - px1) * (py2 - py1) / (px2 - px1) + py1;
+            polyline.push(left);
+            polyline.push(y);
+            result.push(polyline.into_bump_slice_mut());
+            polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
-    if !pl.is_empty() {
-        res.push(pl);
+    if !polyline.is_empty() {
+        result.push(polyline.into_bump_slice_mut());
     }
 
-    res
+    result
 }
 
-/// Отсечение справа (для полилинии, оптимизировано)
-fn clip_right(coords: &[f64], right: f64) -> Vec<Vec<f64>> {
-    let mut res = Vec::new();
+fn clip_right<'a>(bump: &'a Bump, coords: &[f64], right: f64) -> Segments<'a> {
+    let mut result = Segments::new_in(bump);
     if coords.is_empty() {
-        return res;
+        return result;
     }
 
-    let (px1, py1) = (coords[0], coords[1]);
-
-    let mut pl = Vec::with_capacity(coords.len());
+    let (mut px1, mut py1) = (coords[0], coords[1]);
+    let mut polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
 
     if px1 <= right {
-        pl.push(px1);
-        pl.push(py1);
+        polyline.push(px1);
+        polyline.push(py1);
     }
 
     for i in (2..coords.len()).step_by(2) {
         let (px2, py2) = (coords[i], coords[i + 1]);
 
         if px1 <= right && px2 <= right {
-            pl.push(px2);
-            pl.push(py2);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if px1 > right && px2 < right {
-            let intersect_y = (right - px1) * (py2 - py1) / (px2 - px1) + py1;
-            pl.push(right);
-            pl.push(intersect_y);
-            pl.push(px2);
-            pl.push(py2);
+            let y = (right - px1) * (py2 - py1) / (px2 - px1) + py1;
+            polyline.push(right);
+            polyline.push(y);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if px1 < right && px2 > right {
-            let intersect_y = (right - px1) * (py2 - py1) / (px2 - px1) + py1;
-            pl.push(right);
-            pl.push(intersect_y);
-
-            res.push(pl);
-            pl = Vec::with_capacity(coords.len());
+            let y = (right - px1) * (py2 - py1) / (px2 - px1) + py1;
+            polyline.push(right);
+            polyline.push(y);
+            result.push(polyline.into_bump_slice_mut());
+            polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
-    if !pl.is_empty() {
-        res.push(pl);
+    if !polyline.is_empty() {
+        result.push(polyline.into_bump_slice_mut());
     }
 
-    res
+    result
 }
 
-/// Отсечение снизу (для полилинии, оптимизировано)
-fn clip_bottom(coords: &[f64], bottom: f64) -> Vec<Vec<f64>> {
-    let mut res = Vec::new();
+fn clip_bottom<'a>(bump: &'a Bump, coords: &[f64], bottom: f64) -> Segments<'a> {
+    let mut result = Segments::new_in(bump);
     if coords.is_empty() {
-        return res;
+        return result;
     }
 
-    let (px1, py1) = (coords[0], coords[1]);
-
-    let mut pl = Vec::with_capacity(coords.len());
+    let (mut px1, mut py1) = (coords[0], coords[1]);
+    let mut polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
 
     if py1 >= bottom {
-        pl.push(px1);
-        pl.push(py1);
+        polyline.push(px1);
+        polyline.push(py1);
     }
 
     for i in (2..coords.len()).step_by(2) {
         let (px2, py2) = (coords[i], coords[i + 1]);
 
         if py1 >= bottom && py2 >= bottom {
-            pl.push(px2);
-            pl.push(py2);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if py1 < bottom && py2 > bottom {
-            let intersect_x = (bottom - py1) * (px2 - px1) / (py2 - py1) + px1;
-            pl.push(intersect_x);
-            pl.push(bottom);
-            pl.push(px2);
-            pl.push(py2);
+            let x = (bottom - py1) * (px2 - px1) / (py2 - py1) + px1;
+            polyline.push(x);
+            polyline.push(bottom);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if py1 > bottom && py2 < bottom {
-            let intersect_x = (bottom - py1) * (px2 - px1) / (py2 - py1) + px1;
-            pl.push(intersect_x);
-            pl.push(bottom);
-
-            res.push(pl);
-            pl = Vec::with_capacity(coords.len());
+            let x = (bottom - py1) * (px2 - px1) / (py2 - py1) + px1;
+            // Как в C#: перед точкой пересечения повторно добавляем предыдущую
+            // точку, сохраняя тот же состав и порядок координат сегмента
+            polyline.push(px1);
+            polyline.push(py1);
+            polyline.push(x);
+            polyline.push(bottom);
+            result.push(polyline.into_bump_slice_mut());
+            polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
-    if !pl.is_empty() {
-        res.push(pl);
+    if !polyline.is_empty() {
+        result.push(polyline.into_bump_slice_mut());
     }
 
-    res
+    result
 }
 
-/// Отсечение сверху (для полилинии, оптимизировано)
-fn clip_top(coords: &[f64], top: f64) -> Vec<Vec<f64>> {
-    let mut res = Vec::new();
+fn clip_top<'a>(bump: &'a Bump, coords: &[f64], top: f64) -> Segments<'a> {
+    let mut result = Segments::new_in(bump);
     if coords.is_empty() {
-        return res;
+        return result;
     }
 
-    let (px1, py1) = (coords[0], coords[1]);
-
-    let mut pl = Vec::with_capacity(coords.len());
+    let (mut px1, mut py1) = (coords[0], coords[1]);
+    let mut polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
 
     if py1 <= top {
-        pl.push(px1);
-        pl.push(py1);
+        polyline.push(px1);
+        polyline.push(py1);
     }
 
     for i in (2..coords.len()).step_by(2) {
         let (px2, py2) = (coords[i], coords[i + 1]);
 
         if py1 <= top && py2 <= top {
-            pl.push(px2);
-            pl.push(py2);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if py1 > top && py2 < top {
-            let intersect_x = (top - py1) * (px2 - px1) / (py2 - py1) + px1;
-            pl.push(intersect_x);
-            pl.push(top);
-            pl.push(px2);
-            pl.push(py2);
+            let x = (top - py1) * (px2 - px1) / (py2 - py1) + px1;
+            polyline.push(x);
+            polyline.push(top);
+            polyline.push(px2);
+            polyline.push(py2);
         } else if py1 < top && py2 > top {
-            let intersect_x = (top - py1) * (px2 - px1) / (py2 - py1) + px1;
-            pl.push(intersect_x);
-            pl.push(top);
-
-            res.push(pl);
-            pl = Vec::with_capacity(coords.len());
+            let x = (top - py1) * (px2 - px1) / (py2 - py1) + px1;
+            polyline.push(px1);
+            polyline.push(py1);
+            polyline.push(x);
+            polyline.push(top);
+            result.push(polyline.into_bump_slice_mut());
+            polyline = BumpVec::with_capacity_in(coords.len() * 2, bump);
         }
+
+        (px1, py1) = (px2, py2);
     }
 
-    if !pl.is_empty() {
-        res.push(pl);
+    if !polyline.is_empty() {
+        result.push(polyline.into_bump_slice_mut());
     }
 
-    res
+    result
 }
 
-/// Отсечение полилинии по прямоугольнику (оптимизировано)
-pub fn clip_polyline(g: &Primitive, rect: &Rect) -> Vec<Vec<f64>> {
-    let mut res = if g.rect.left < rect.left {
-        clip_left(&g.coords, rect.left)
+pub fn clip_polyline<'a>(
+    bump: &'a Bump,
+    primitive: &'static Primitive,
+    rect: &Rect,
+) -> Segments<'a> {
+    let mut result = if primitive.rect.left < rect.left {
+        clip_left(bump, &primitive.coords, rect.left)
     } else {
-        vec![g.coords.clone()]
+        let mut segments = Segments::with_capacity_in(1, bump);
+        // C# делает `(double[])g.Coords.Clone()` до последующих отсечений
+        let coords: &'a mut [f64] = bump.alloc_slice_copy(&primitive.coords);
+        segments.push(coords);
+        segments
     };
 
-    if g.rect.bottom < rect.bottom {
-        let mut tmp = Vec::new();
-        for cs in &res {
-            tmp.extend(clip_bottom(cs, rect.bottom));
+    if primitive.rect.bottom < rect.bottom {
+        let mut clipped = Segments::with_capacity_in(result.len() * 2, bump);
+        for segment in result {
+            for next in clip_bottom(bump, segment, rect.bottom) {
+                clipped.push(next);
+            }
         }
-        res = tmp;
+        result = clipped;
     }
 
-    if g.rect.right > rect.right {
-        let mut tmp = Vec::new();
-        for cs in &res {
-            tmp.extend(clip_right(cs, rect.right));
+    if primitive.rect.right > rect.right {
+        let mut clipped = Segments::with_capacity_in(result.len() * 2, bump);
+        for segment in result {
+            for next in clip_right(bump, segment, rect.right) {
+                clipped.push(next);
+            }
         }
-        res = tmp;
+        result = clipped;
     }
 
-    if g.rect.top > rect.top {
-        let mut tmp = Vec::new();
-        for cs in &res {
-            tmp.extend(clip_top(cs, rect.top));
+    if primitive.rect.top > rect.top {
+        let mut clipped = Segments::with_capacity_in(result.len() * 2, bump);
+        for segment in result {
+            for next in clip_top(bump, segment, rect.top) {
+                clipped.push(next);
+            }
         }
-        res = tmp;
+        result = clipped;
     }
 
-    res
+    result
 }

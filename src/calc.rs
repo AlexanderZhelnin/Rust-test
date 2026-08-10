@@ -1,50 +1,69 @@
 use crate::models::DrawProperties1;
+use bumpalo::{Bump, collections::Vec as BumpVec};
 use std::arch::x86_64::*;
 
 /// Преобразование в систему координат экрана
 #[inline]
 pub fn translate(cs: &mut [f64], pr: &DrawProperties1) {
     let count = cs.len() - (cs.len() % 4);
-
-    // Развертывание цикла для уменьшения накладных расходов
     let left_top_0 = pr.left_top[0];
     let left_top_1 = pr.left_top[1];
     let scale = pr.scale;
 
-    let mut i = 0;
-    while i < count {
-        cs[i] = (cs[i] - left_top_0) * scale;
-        cs[i + 1] = -(cs[i + 1] - left_top_1) * scale;
-        cs[i + 2] = (cs[i + 2] - left_top_0) * scale;
-        cs[i + 3] = -(cs[i + 3] - left_top_1) * scale;
-
-        i += 4;
+    let (vectors, tail) = cs.split_at_mut(count);
+    if !vectors.is_empty() {
+        // C# `Calc.Translate` обрабатывает те же четыре `double` через аппаратно
+        // ускоренный `Vector<double>`. Здесь эквивалентный SIMD-путь выбран
+        // явно, а для процессоров без AVX сохранён скалярный fallback
+        if std::arch::is_x86_feature_detected!("avx") {
+            // SAFETY: поддержка AVX проверена выше, длина `vectors` кратна 4
+            unsafe { translate_avx(vectors, left_top_0, left_top_1, scale) };
+        } else {
+            translate_scalar(vectors, left_top_0, left_top_1, scale);
+        }
     }
 
-    if count >= cs.len() {
-        return;
+    debug_assert!(tail.is_empty() || tail.len() == 2);
+    if tail.len() == 2 {
+        tail[0] = (tail[0] - left_top_0) * scale;
+        tail[1] = (left_top_1 - tail[1]) * scale;
     }
-
-    // Обработка оставшихся элементов
-    let last_idx = cs.len().saturating_sub(2);
-    cs[last_idx] = (cs[last_idx] - left_top_0) * scale;
-    cs[last_idx + 1] = -(cs[last_idx + 1] - left_top_1) * scale;
 }
 
-/// Удаление точек которые не будут отображаться
-pub fn optimize(mas: &[f64], l: f64) -> Vec<f64> {
+#[target_feature(enable = "avx")]
+unsafe fn translate_avx(cs: &mut [f64], left: f64, top: f64, scale: f64) {
+    let left_top = _mm256_setr_pd(left, top, left, top);
+    let scale = _mm256_setr_pd(scale, -scale, scale, -scale);
+    let pointer = cs.as_mut_ptr();
+
+    for i in (0..cs.len()).step_by(4) {
+        // SAFETY: вызывающий передаёт длину, кратную четырём, поэтому каждая
+        // невыравненная загрузка и запись целиком находится внутри `cs`
+        let value = unsafe { _mm256_loadu_pd(pointer.add(i)) };
+        let value = _mm256_mul_pd(_mm256_sub_pd(value, left_top), scale);
+        unsafe { _mm256_storeu_pd(pointer.add(i), value) };
+    }
+}
+
+#[inline]
+fn translate_scalar(cs: &mut [f64], left: f64, top: f64, scale: f64) {
+    for point_pair in cs.chunks_exact_mut(4) {
+        point_pair[0] = (point_pair[0] - left) * scale;
+        point_pair[1] = -(point_pair[1] - top) * scale;
+        point_pair[2] = (point_pair[2] - left) * scale;
+        point_pair[3] = -(point_pair[3] - top) * scale;
+    }
+}
+
+/// Удаление невидимых точек с размещением результата в арене запроса
+pub fn optimize_bump<'a>(bump: &'a Bump, mas: &'a mut [f64], l: f64) -> &'a mut [f64] {
     let count = mas.len();
     if count < 5 {
-        return mas.to_vec();
+        return mas;
     }
 
-    // Предварительно вычисляем квадрат допуска
     let l_sq = l * l;
-
-    // Оптимизированный вектор с резервированием памяти
-    let mut coords: Vec<f64> = Vec::with_capacity(count);
-
-    // Добавляем первую точку
+    let mut coords = BumpVec::with_capacity_in(count, bump);
     coords.push(mas[0]);
     coords.push(mas[1]);
 
@@ -61,11 +80,9 @@ pub fn optimize(mas: &[f64], l: f64) -> Vec<f64> {
         }
     }
 
-    // Добавляем последнюю точку
     coords.push(mas[count - 2]);
     coords.push(mas[count - 1]);
-
-    coords
+    coords.into_bump_slice_mut()
 }
 
 /// Находится ли следующая точка на линии с определённым допуском
@@ -83,12 +100,13 @@ pub fn is_point_on_line(p1: &[f64], p2: &[f64], p: &[f64], l_sq: f64) -> bool {
     // lenSQ = c*c + d*d
     let len_sq = cd_x * cd_x + cd_y * cd_y;
 
-    if len_sq == 0.0 {
-        return false;
-    }
-
-    // param = (a*c + b*d) / lenSQ
-    let param = (ab_x * cd_x + ab_y * cd_y) / len_sq;
+    // C# использует param = -1 для вырожденного отрезка и затем
+    // проверяет расстояние до p1
+    let param = if len_sq != 0.0 {
+        (ab_x * cd_x + ab_y * cd_y) / len_sq
+    } else {
+        -1.0
+    };
 
     // Вычисляем ближайшую точку на линии
     let (xx, yy) = if param < 0.0 {
@@ -112,7 +130,6 @@ pub fn is_point_on_line(p1: &[f64], p2: &[f64], p: &[f64], l_sq: f64) -> bool {
 #[cfg(target_arch = "x86_64")]
 #[inline]
 pub fn is_point_on_line_simd(p1: &[f64; 2], p2: &[f64; 2], p: &[f64; 2], l_sq: f64) -> bool {
-
     unsafe {
         // Загружаем значения в Vector128
         let v_p = _mm_loadu_pd(p.as_ptr());
@@ -129,13 +146,14 @@ pub fn is_point_on_line_simd(p1: &[f64; 2], p2: &[f64; 2], p: &[f64; 2], l_sq: f
         let len_sq_vec = _mm_dp_pd(cd, cd, 255);
         let len_sq_simd = _mm_cvtsd_f64(len_sq_vec);
 
-        if len_sq_simd == 0.0 {
-            return false;
-        }
-
-        // param = (a*c + b*d) / lenSQ
-        let ab_cd_dot = _mm_dp_pd(ab, cd, 255);
-        let param = _mm_cvtsd_f64(ab_cd_dot) / len_sq_simd;
+        // Как в C#: вырожденный отрезок означает param = -1,
+        // после чего расстояние считается до p1
+        let param = if len_sq_simd != 0.0 {
+            let ab_cd_dot = _mm_dp_pd(ab, cd, 255);
+            _mm_cvtsd_f64(ab_cd_dot) / len_sq_simd
+        } else {
+            -1.0
+        };
 
         // Вычисляем ближайшую точку на линии
         let xy = if param < 0.0 {
@@ -155,5 +173,69 @@ pub fn is_point_on_line_simd(p1: &[f64; 2], p2: &[f64; 2], p: &[f64; 2], l_sq: f
         // distance_sq < l_sq
         let dp_dot = _mm_dp_pd(dp, dp, 255);
         _mm_cvtsd_f64(dp_dot) < l_sq
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{optimize_bump, translate};
+    use crate::models::DrawProperties1;
+    use bumpalo::Bump;
+
+    #[test]
+    fn optimize_matches_csharp_for_degenerate_segment() {
+        let bump = Bump::new();
+        let coords = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 10.0];
+        let coords = bump.alloc_slice_copy(&coords);
+
+        assert_eq!(
+            optimize_bump(&bump, coords, 1.0),
+            [0.0, 0.0, 0.0, 0.0, 10.0, 10.0]
+        );
+    }
+
+    #[test]
+    fn optimize_reuses_short_arena_slice() {
+        let bump = Bump::new();
+        let coords = bump.alloc_slice_copy(&[1.0, 2.0, 3.0, 4.0]);
+        let original_pointer = coords.as_ptr();
+
+        let optimized = optimize_bump(&bump, coords, 1.0);
+
+        assert_eq!(optimized.as_ptr(), original_pointer);
+    }
+
+    #[test]
+    fn translate_matches_csharp_for_trailing_pair() {
+        let properties = DrawProperties1 {
+            left_top: [10.0, 20.0],
+            scale: 2.0,
+            mashtab: 100.0,
+        };
+        let mut coords = [10.0, 20.0];
+
+        translate(&mut coords, &properties);
+
+        assert_eq!(coords[0], 0.0);
+        assert!(coords[1].is_sign_positive());
+    }
+
+    #[test]
+    fn translate_matches_csharp_rounding() {
+        let properties = DrawProperties1 {
+            left_top: [1200.0, 2850.0],
+            scale: 0.37037037037037035,
+            mashtab: 100.0,
+        };
+        let mut coords = [
+            1641.7648318748288,
+            853.8923978876566,
+            1648.62612300614,
+            899.09110948204,
+        ];
+
+        translate(&mut coords, &properties);
+
+        assert_eq!(coords[1].to_bits(), 739.2991118934606_f64.to_bits());
     }
 }
