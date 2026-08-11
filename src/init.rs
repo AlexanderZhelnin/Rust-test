@@ -4,7 +4,7 @@ use std::fs;
 /// Инициализация данных из JSON файла
 pub fn init_data() -> (Vec<Legend>, Rect) {
     // Читаем данные из JSON файла
-    let json = fs::read_to_string("data.json")
+    let json = fs::read_to_string(r"data.json")
         .expect("Не удалось прочитать файл data.json");
 
     let ls: Vec<Legend> = serde_json::from_str(&json)

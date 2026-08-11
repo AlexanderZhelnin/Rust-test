@@ -1,7 +1,8 @@
-use axum::Json;
+// use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
-use utoipa::ToSchema;
+// use utoipa::ToSchema;
+use std::sync::Arc;
 
 // Типы графических образов (GrTypeEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -224,7 +225,7 @@ pub struct Primitive {
     pub text_coord_y: f64,
     pub text_angle: f64,
     pub rect: Rect,
-    pub name: String,
+    pub name: Arc<str>,
 }
 
 impl Default for Primitive {
@@ -235,7 +236,7 @@ impl Default for Primitive {
             text_coord_y: 0.0,
             text_angle: 0.0,
             rect: Rect::default(),
-            name: String::new(),
+            name: Arc::from(""),
         }
     }
 }
@@ -279,36 +280,27 @@ impl Default for DrawProperties1 {
 }
 
 // Графический образ (IObraz)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // ToSchema
 pub struct IObraz {
-    pub name: String,
+    pub name: Arc<str>,
     pub coords: Vec<f64>,
 }
 
 impl Default for IObraz {
     fn default() -> Self {
         Self {
-            name: String::new(),
+            name: Arc::from(""),
             coords: Vec::new(),
         }
     }
 }
 
 // Слой (ILayer)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)] // ToSchema
 #[serde(rename_all = "camelCase")]
 pub struct ILayer {
     pub legend_id: i64,
     pub obrazes: Vec<IObraz>,
-}
-
-impl Default for ILayer {
-    fn default() -> Self {
-        Self {
-            legend_id: 0,
-            obrazes: Vec::new(),
-        }
-    }
 }
 
 // Легенда (ILegend)
@@ -343,5 +335,5 @@ impl Default for Legend {
     }
 }
 
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct JsonLayers(Vec<ILayer>);
+// #[derive(Serialize, Deserialize, ToSchema)]
+// pub struct JsonLayers(Vec<ILayer>);

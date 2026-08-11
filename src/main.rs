@@ -1,78 +1,124 @@
 mod calc;
 mod drawer;
 mod init;
+mod json_response;
 mod models;
 mod polygon;
 mod polyline;
 mod strings;
 
-use arrayvec::ArrayString;
-use axum::{Json, Router, extract::Query, http::StatusCode, routing::get};
-use drawer::build;
+use axum::{Json, Router, extract::Query, response::Response, routing::get};
+use drawer::{build, build_iter};
 use init::init_data;
-use models::{DrawProperties1, ILayer, Rect, JsonLayers};
+use models::{DrawProperties1, Legend, Rect };
 use std::sync::OnceLock;
-use utoipa::{OpenApi, ToSchema, path};
+use widestring::{U16Str, U16String, u16str};
+// use utoipa::{OpenApi, ToSchema, path};
 
-#[derive(serde::Deserialize)]
+const SORT_PREFIX_1: &U16Str = u16str!("asrgfsadf12421");
+const SORT_PREFIX_2: &U16Str = u16str!("asrgfsadf12321");
+const SORT_STACK_CAPACITY: usize = 128;
+
+// все выделения памяти Rust выполняются через mimalloc
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[inline]
+fn write_sort_value(value: &mut U16String, prefix: &U16Str, suffix: &str) {
+    value.clear();
+    value.push(prefix);
+
+    // `itoa` возвращает только ASCII. Расширяем каждый байт напрямую до u16,
+    // как числовой форматтер C# записывает цифры в UTF-16 `char`, не запуская
+    // декодирование UTF-8
+    debug_assert!(suffix.is_ascii());
+    let units = value.as_mut_vec();
+    for &byte in suffix.as_bytes() {
+        units.push(u16::from(byte));
+    }
+}
+
+/// Аналог `ValueStringBuilder(stackalloc char[128])`: буфер целиком на стеке,
+/// а ASCII-цифры из `itoa` расширяются до UTF-16 без heap-аллокаций
+#[inline]
+fn write_sort_stack(
+    value: &mut [u16; SORT_STACK_CAPACITY],
+    prefix: &U16Str,
+    suffix: &str,
+) -> usize {
+    debug_assert!(suffix.is_ascii());
+    let prefix = prefix.as_slice();
+    let suffix = suffix.as_bytes();
+    let len = prefix.len() + suffix.len();
+    debug_assert!(len <= value.len());
+
+    value[..prefix.len()].copy_from_slice(prefix);
+    for (target, &source) in value[prefix.len()..len].iter_mut().zip(suffix) {
+        *target = u16::from(source);
+    }
+
+    len
+}
+
+// Как в C# `(double x = 0, double y = 0)`: отсутствующие query-параметры
+// независимо получают значение 0.0
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
 struct MapQuery {
     x: f64,
     y: f64,
 }
 
-// Глобальные данные для инициализации (без unsafe)
-static LS: OnceLock<Vec<models::Legend>> = OnceLock::new();
-static R: OnceLock<Rect> = OnceLock::new();
+// Как в C#: файл читается и разбирается ровно один раз,
+// а готовые данные живут до завершения процесса
+static DATA: OnceLock<(Vec<Legend>, Rect)> = OnceLock::new();
 
-fn get_data() -> (&'static Vec<models::Legend>, &'static Rect) {
-    let ls = LS.get_or_init(|| init_data().0);
-    let r = R.get_or_init(|| init_data().1);
-    (ls, r)
+fn get_data() -> (&'static [Legend], &'static Rect) {
+    let (legends, rect) = DATA.get_or_init(init_data);
+    // Возвращаем ссылки на общие данные без клонирования всей карты
+    (legends.as_slice(), rect)
 }
 
 /// Эндпоинт для чтения файла
-#[utoipa::path(
-    get,
-    path = "/readfile",
-    responses((status = 200, description = "Данные прочитанного файла", body = String))
-)]
-async fn read_file() -> (StatusCode, String) {
-    match std::fs::read_to_string("data.txt") {
-        Ok(content) => (StatusCode::OK, content),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Ошибка: {}", e)),
-    }
-}
+// #[utoipa::path(
+//     get,
+//     path = "/readfile",
+//     responses((status = 200, description = "Данные прочитанного файла", body = String))
+// )]
+// async fn read_file() -> (StatusCode, String) {
+//     // Как `File.ReadAllTextAsync` в C#: асинхронное чтение не блокирует
+//     // рабочий поток HTTP-сервера на время файловой операции
+//     match tokio::fs::read_to_string("data.txt").await {
+//         Ok(content) => (StatusCode::OK, content),
+//         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Ошибка: {}", e)),
+//     }
+// }
 
-/// Эндпоинт для вычисления числа Фибоначчи
-#[utoipa::path(
-    get,
-    path = "/fibonacci",
-    responses((status = 200, description = "Фибоначчи", body = String))
-)]
+/// Эндпоинт для вычисления числа Фибоначчи (оптимизировано)
+// #[utoipa::path(
+//     get,
+//     path = "/fibonacci",
+//     responses((status = 200, description = "Фибоначчи", body = String))
+// )]
 async fn fibonacci() -> String {
     let mut a: u64 = 0;
     let mut b: u64 = 1;
 
     for _ in 2..2_000_000 {
         let temp = b;
-        b = a + b;
+        b = a.wrapping_add(b);
         a = temp;
     }
 
     a.to_string()
 }
 
-/// Эндпоинт для получения преобразованных геоданных (без реального ответа)
-#[utoipa::path(
-    get,
-    path = "/map",
-    responses((status = 200, description = "Получение преобразованных геоданных (тест без реального ответа)", body = JsonLayers))
-)]
-async fn map_query(Query(query): Query<MapQuery>) -> (StatusCode, String) {
+/// Получение преобразованных геоданных (без реального ответа)
+fn map_work(query: MapQuery) -> i32 {
     let x = query.x / 100.0;
     let y = query.y / 100.0;
 
-    let (pr, rect) = get_data();
+    let (legends, rect) = get_data();
 
     let pr1 = DrawProperties1 {
         left_top: [rect.left + x, rect.top + y],
@@ -80,119 +126,184 @@ async fn map_query(Query(query): Query<MapQuery>) -> (StatusCode, String) {
         mashtab: 100.0,
     };
 
-    let mut rect1 = Rect {
+    let rect1 = Rect {
         left: rect.left + x,
         top: rect.top + y,
         bottom: rect.bottom,
         right: rect.right,
     };
 
-    // Используем ссылки вместо клонирования
-    let result = build(pr, &mut pr1.clone(), &mut rect1);
+    // Как C# `BuildGenerator(...).Count()`: общий `Vec<ILayer>` не создаётся,
+    // а уже посчитанный слой освобождается перед построением следующего
+    build_iter(legends, &pr1, &rect1).count() as i32
+}
 
-    (StatusCode::OK, result.len().to_string())
+/// Эндпоинт для получения преобразованных геоданных (без реального ответа)
+// #[utoipa::path(
+//     get,
+//     path = "/map",
+//     responses((status = 200, description = "Получение преобразованных геоданных (тест без реального ответа)", body = JsonLayers))
+// )]
+async fn map_query(Query(query): Query<MapQuery>) -> Json<i32> {
+    let result = run_on_cpu_pool(move || map_work(query)).await;
+
+    Json(result)
+}
+
+/// Получение преобразованных геоданных с JSON ответом
+fn map_json_work(query: MapQuery) -> Vec<u8> {
+    let x = query.x / 100.0;
+    let y = query.y / 100.0;
+
+    let (legends, rect) = get_data();
+
+    let pr1 = DrawProperties1 {
+        left_top: [rect.left + x, rect.top + y],
+        scale: 0.37037037037037035,
+        mashtab: 100.0,
+    };
+
+    let rect1 = Rect {
+        left: rect.left + x,
+        top: rect.top + y,
+        bottom: rect.bottom,
+        right: rect.right,
+    };
+
+    let result = build(legends, &pr1, &rect1);
+
+    // Как и C# Take(5): вычисляем все слои и сохраняем исходный массив живым
+    // до конца сериализации, но в JSON передаём только первые пять
+    let limited_result = result.get(..5).unwrap_or(&result);
+    json_response::serialize(limited_result)
 }
 
 /// Эндпоинт для получения преобразованных геоданных с JSON ответом
-#[utoipa::path(
-    get,
-    path = "/mapJSON",
-    responses((status = 200, description = "Получение преобразованных геоданных", body = JsonLayers))
-)]
-async fn map_json_query(Query(query): Query<MapQuery>) -> (StatusCode, Json<Vec<ILayer>>) {
-    let x = query.x / 100.0;
-    let y = query.y / 100.0;
+// #[utoipa::path(
+//     get,
+//     path = "/mapJSON",
+//     responses((status = 200, description = "Получение преобразованных геоданных", body = JsonLayers))
+// )]
+async fn map_json_query(Query(query): Query<MapQuery>) -> Response {
+    let body = run_on_cpu_pool(move || map_json_work(query)).await;
 
-    let (pr, rect) = get_data();
+    json_response::from_bytes(body)
+}
 
-    let pr1 = DrawProperties1 {
-        left_top: [rect.left + x, rect.top + y],
-        scale: 0.37037037037037035,
-        mashtab: 100.0,
-    };
+/// Тестовые вычисления натурального сравнения
+/// Как в C#, результат `int` возвращается числом JSON
+fn natural_sort_work() -> i32 {
+    let mut buf = itoa::Buffer::new();
+    let mut result = 0;
 
-    let mut rect1 = Rect {
-        left: rect.left + x,
-        top: rect.top + y,
-        bottom: rect.bottom,
-        right: rect.right,
-    };
+    for i in 0..10_000 {
+        let digits = buf.format(i);
+        let mut s1 = U16String::with_capacity(SORT_PREFIX_1.len() + digits.len());
+        write_sort_value(&mut s1, SORT_PREFIX_1, digits);
 
-    // Используем ссылки вместо клонирования
-    let result = build(pr, &mut pr1.clone(), &mut rect1);
+        let digits = buf.format(i);
+        let mut s2 = U16String::with_capacity(SORT_PREFIX_2.len() + digits.len());
+        write_sort_value(&mut s2, SORT_PREFIX_2, digits);
 
-    // Возвращаем первые 5 элементов
-    let limited_result = if result.len() > 5 {
-        &result[..5]
-    } else {
-        &result[..]
-    };
+        result += strings::compare(s1.as_ustr(), s2.as_ustr());
+    }
 
-    (StatusCode::OK, Json(limited_result.to_vec()))
+    result
 }
 
 /// Эндпоинт для натуральной сортировки строк
-#[utoipa::path(
-    get,
-    path = "/naturalsort",
-    responses((status = 200, description = "Натуральное сравнение 10000 пар строк", body = String))
-)]
-async fn natural_sort() -> (StatusCode, String) {
-    const STR1: &str = "asrgfsadf12421";
-    const STR2: &str = "asrgfsadf12321";
-    let mut buf = itoa::Buffer::new();
+// #[utoipa::path(
+//     get,
+//     path = "/naturalsort",
+//     responses((status = 200, description = "Натуральное сравнение 10000 пар строк", body = String))
+// )]
+async fn natural_sort() -> Json<i32> {
+    let result = run_on_cpu_pool(natural_sort_work).await;
 
-    // const MAX_S1: usize = STR1.len() + "10000".len();
-    // const MAX_S2: usize = STR2.len() + "10000".len();
+    Json(result)
+}
 
-    let mut result = 0;
-    for i in 0..10_000 {
-        let i_str = buf.format(i);
+fn cpu_parallelism() -> usize {
+    // Это уже выбранное самим Tokio количество worker'ов. Без явной настройки
+    // Tokio получает его через std::thread::available_parallelism()
+    tokio::runtime::Handle::current().metrics().num_workers()
+}
 
-        let mut s1 = String::with_capacity(str1_len + i_len);
-        //Было предложение сделать ArrayString - но он хранить данные в стеке. а задумка была сделать именно 10000 пар строк и сравнить эти пары
-        //let mut s1 = ArrayString::<MAX_S1>::new();
-        s1.push_str(STR1);
-        s1.push_str(i_str);
+struct CpuExecutor {
+    permits: tokio::sync::Semaphore,
+    pool: rayon::ThreadPool,
+}
 
-        let mut s2 = String::with_capacity(str2_len + i_len);
-        //Было предложение сделать ArrayString - но он хранить данные в стеке. а задумка была сделать именно 10000 пар строк и сравнить эти пары
-        // let mut s2 = ArrayString::<MAX_S2>::new();
-        s2.push_str(STR2);
-        s2.push_str(i_str);
+// В сравнения с C# это допустимая настройка runtime, .NET Core также
+// выполняет синхронную CPU-работу обработчиков в пуле потоков.
+// Rayon меняет только способ планирования, но не логику и объём вычислений.
+// Сам Tokio также рекомендует выносить длительную CPU-работу из
+// потоков async I/O в отдельный ограниченный executor
+static CPU_EXECUTOR: OnceLock<CpuExecutor> = OnceLock::new();
 
-        result += strings::compare(&s1, &s2);
+fn init_cpu_executor(thread_count: usize) {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(thread_count)
+        .thread_name(|index| format!("api-cpu-{index}"))
+        .build()
+        .expect("Failed to create the Rayon thread pool");
+
+    if CPU_EXECUTOR
+        .set(CpuExecutor {
+            permits: tokio::sync::Semaphore::new(thread_count),
+            pool,
+        })
+        .is_err()
+    {
+        panic!("CPU executor has already been initialized");
     }
+}
 
-    (StatusCode::OK, result.to_string())
+fn cpu_executor() -> &'static CpuExecutor {
+    CPU_EXECUTOR
+        .get()
+        .expect("CPU executor has not been initialized")
+}
+
+async fn run_on_cpu_pool<T>(work: impl FnOnce() -> T + Send + 'static) -> T
+where
+    T: Send + 'static,
+{
+    let executor = cpu_executor();
+    let _permit = executor
+        .permits
+        .acquire()
+        .await
+        .expect("CPU executor semaphore was closed");
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    executor.pool.spawn_fifo(move || {
+        let _ = sender.send(work());
+    });
+    receiver.await.expect("Rayon task terminated unexpectedly")
 }
 
 /// Эндпоинт для натуральной сортировки строк (Версия для прикола)
-async fn natural_sort_hack() -> (StatusCode, String) {
-    const STR1: &str = "asrgfsadf12421";
-    const STR2: &str = "asrgfsadf12321";
-
-    let max_len = "10000".len();
-    let mut s1 = String::with_capacity(STR1.len() + max_len);
-    let mut s2 = String::with_capacity(STR2.len() + max_len);
+/// Как в C#, результат `int` возвращается числом JSON
+async fn natural_sort_hack() -> Json<i32> {
+    let mut s1 = [0_u16; SORT_STACK_CAPACITY];
+    let mut s2 = [0_u16; SORT_STACK_CAPACITY];
     let mut buf = itoa::Buffer::new();
 
     let mut result = 0;
     for i in 0..10_000 {
-        let i_str = buf.format(i);
+        let digits = buf.format(i);
+        let s1_len = write_sort_stack(&mut s1, SORT_PREFIX_1, digits);
 
-        s1.clear();
-        s1.push_str(STR1);
-        s1.push_str(i_str);
+        let digits = buf.format(i);
+        let s2_len = write_sort_stack(&mut s2, SORT_PREFIX_2, digits);
 
-        s2.clear();
-        s2.push_str(STR2);
-        s2.push_str(i_str);
-
-        result += strings::compare(&s1, &s2);
+        result += strings::compare(
+            U16Str::from_slice(&s1[..s1_len]),
+            U16Str::from_slice(&s2[..s2_len]),
+        );
     }
 
-    (StatusCode::OK, result.to_string())
+    Json(result)
 }
 
 /// Корневой эндпоинт
@@ -200,26 +311,42 @@ async fn root() -> &'static str {
     "Hello World rust!"
 }
 
-#[derive(OpenApi)]
-#[openapi(paths(read_file, fibonacci, map_query, map_json_query, natural_sort))]
-struct ApiDoc;
+// Инструментированная PGO-сборка должна завершиться штатно, чтобы LLVM
+// записал профиль. В обычном запуске эта ветка не выполняется, и сервер
+// по-прежнему работает через прямой `serve(...).await`
+async fn wait_for_pgo_training_shutdown() {
+    let _ = tokio::task::spawn_blocking(|| {
+        let mut input = String::new();
+        let _ = std::io::stdin().read_line(&mut input);
+    })
+    .await;
+}
 
 #[tokio::main]
 async fn main() {
     let listen_addr = "127.0.0.1:3003";
+    let cpu_threads = cpu_parallelism();
+    init_cpu_executor(cpu_threads);
+    get_data();
+    println!("Rayon CPU pool: {cpu_threads} threads");
     println!("Starting Rust server at {listen_addr}");
 
     let app = Router::new()
         .route("/", get(root))
-        .route("/readfile", get(read_file))
+        // .route("/readfile", get(read_file))
         .route("/fibonacci", get(fibonacci))
         .route("/map", get(map_query))
         .route("/mapJSON", get(map_json_query))
         .route("/naturalsort", get(natural_sort))
-        .route("/naturalsorthack", get(natural_sort_hack))
-        .merge(utoipa_swagger_ui::SwaggerUi::new("/swagger")
-            .url("/api-docs/openapi.json", ApiDoc::openapi()));
+        .route("/naturalsortHack", get(natural_sort_hack));
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    if std::env::var_os("API_TEST_PGO_TRAINING").is_some() {
+        tokio::select! {
+            result = axum::serve(listener, app) => result.unwrap(),
+            _ = wait_for_pgo_training_shutdown() => {}
+        }
+    } else {
+        axum::serve(listener, app).await.unwrap();
+    }
 }

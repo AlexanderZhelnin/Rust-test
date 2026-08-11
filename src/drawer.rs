@@ -2,11 +2,13 @@ use crate::calc::{optimize, translate};
 use crate::models::{DrawProperties1, GrType, ILayer, IObraz, Legend, Rect};
 use crate::polygon::clip_polygon;
 use crate::polyline::clip_polyline;
+use std::sync::Arc;
 
-/// Отсечение графических образов по прямоугольнику (оптимизировано)
-fn clip_primitives(l: &Legend, rect: &Rect) -> Vec<IObraz> {
-    let mut result = Vec::with_capacity(l.primitives.len());
-
+/// Лениво передаёт каждый отсечённый образ потребителю, как C# `yield return`.
+/// `Arc<str>` остаётся owning-типом, поэтому модели результата не получают
+/// lifetime-параметров, а generic callback мономорфизуется компилятором
+#[inline]
+fn visit_clipped_primitives(l: &Legend, rect: &Rect, mut emit: impl FnMut(Vec<f64>, Arc<str>)) {
     for g in &l.primitives {
         // Целиком лежит внутри прямоугольника
         if g.rect.left >= rect.left
@@ -14,10 +16,7 @@ fn clip_primitives(l: &Legend, rect: &Rect) -> Vec<IObraz> {
             && g.rect.right <= rect.right
             && g.rect.top <= rect.top
         {
-            result.push(IObraz {
-                coords: g.coords.clone(),
-                name: g.name.clone(),
-            });
+            emit(g.coords.clone(), g.name.clone());
         } else if g.rect.left < rect.right
             && g.rect.bottom < rect.top
             && g.rect.right > rect.left
@@ -27,57 +26,60 @@ fn clip_primitives(l: &Legend, rect: &Rect) -> Vec<IObraz> {
             match l.gr_type {
                 GrType::Line => {
                     for cs in clip_polyline(g, rect) {
-                        result.push(IObraz {
-                            coords: cs,
-                            name: g.name.clone(),
-                        });
+                        emit(cs, g.name.clone());
                     }
                 }
                 GrType::Polygon => {
                     let cs = clip_polygon(g, rect);
                     if !cs.is_empty() {
-                        result.push(IObraz {
-                            coords: cs,
-                            name: g.name.clone(),
-                        });
+                        emit(cs, g.name.clone());
                     }
                 }
                 _ => {}
             }
         }
     }
-
-    result
 }
 
-/// Подготовка данных для отрисовки (оптимизировано)
-pub fn build(ls: &[Legend], pr: &mut DrawProperties1, rect: &mut Rect) -> Vec<ILayer> {
-    let mut result = Vec::with_capacity(ls.len());
+/// Ленивый аналог C# `BuildGenerator`: каждый слой строится только тогда,
+/// когда потребитель запрашивает следующий элемент
+pub fn build_iter(
+    ls: &[Legend],
+    pr: &DrawProperties1,
+    rect: &Rect,
+) -> impl Iterator<Item = ILayer> {
     let mashtab = 1.0 / pr.scale;
 
-    for l in ls {
+    ls.iter().filter_map(move |l| {
         // Проверка диапазона масштаба
         if l.mashtab_range.min > pr.mashtab || l.mashtab_range.max < pr.mashtab {
-            continue;
+            return None;
         }
 
         let mut mas = Vec::with_capacity(l.primitives.len());
 
-        for obraz in clip_primitives(l, rect) {
-            let mut cs_opt = optimize(&obraz.coords, mashtab);
+        visit_clipped_primitives(l, rect, |coords, name| {
+            // Для короткой геометрии `Optimize` возвращает входной Vec,
+            // как C#, без второй копии
+            let mut cs_opt = optimize(coords, mashtab);
             translate(&mut cs_opt, pr);
 
             mas.push(IObraz {
-                name: obraz.name,
+                name,
                 coords: cs_opt,
             });
-        }
+        });
 
-        result.push(ILayer {
+        Some(ILayer {
             legend_id: l.id,
             obrazes: mas,
-        });
-    }
+        })
+    })
+}
 
+/// Eager-вариант для `/mapJSON`, соответствующий C# `Drawer.Build`
+pub fn build(ls: &[Legend], pr: &DrawProperties1, rect: &Rect) -> Vec<ILayer> {
+    let mut result = Vec::with_capacity(ls.len());
+    result.extend(build_iter(ls, pr, rect));
     result
 }

@@ -1,72 +1,60 @@
+use widestring::U16Str;
+
+const ZERO: u16 = b'0' as u16;
+
 /// Натуральное сравнение строк
-pub fn compare(s1: &str, s2: &str) -> i32 {
-    // Быстрые проверки
-    if s1.is_empty() && s2.is_empty() {
-        return 0;
-    }
-    if s1.is_empty() {
-        return -1;
-    }
-    if s2.is_empty() {
-        return 1;
-    }
+#[inline]
+pub fn compare(s1: &U16Str, s2: &U16Str) -> i32 {
+    let s1 = s1.as_slice();
+    let s2 = s2.as_slice();
+    let mut p1 = 0;
+    let mut p2 = 0;
 
-    let mut p1 = s1.chars();
-    let mut p2 = s2.chars();
+    while p1 < s1.len() {
+        if p2 >= s2.len() {
+            return 1;
+        }
 
-    let mut char1 = p1.next();
-    let mut char2 = p2.next();
+        let char1 = s1[p1];
+        let char2 = s2[p2];
+        p1 += 1;
+        p2 += 1;
 
-    loop {
-        match (char1, char2) {
-            (Some(c1), Some(c2)) => {
-                // Проверяем, являются ли оба символа цифрами
-                if c1.is_ascii_digit() && c2.is_ascii_digit() {
-                    let mut num1 = (c1 as u8 - b'0') as i32;
-                    let mut num2 = (c2 as u8 - b'0') as i32;
+        if is_ascii_digit(char1) && is_ascii_digit(char2) {
+            let mut num1 = i32::from(char1 - ZERO);
+            let mut num2 = i32::from(char2 - ZERO);
 
-                    char1 = p1.next();
-                    char2 = p2.next();
-
-                    // Читаем остальные цифры первого числа
-                    while let Some(c11) = char1 {
-                        if c11.is_ascii_digit() {
-                            num1 = num1 * 10 + (c11 as u8 - b'0') as i32;
-                            char1 = p1.next();
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // Читаем остальные цифры второго числа
-                    while let Some(c22) = char2 {
-                        if c22.is_ascii_digit() {
-                            num2 = num2 * 10 + (c22 as u8 - b'0') as i32;
-                            char2 = p2.next();
-                        } else {
-                            break;
-                        }
-                    }
-
-                    if num1 != num2 {
-                        return if num1 > num2 { 1 } else { -1 };
-                    }
-                } else {
-                    // Сравниваем как символы
-                    if c1 != c2 {
-                        return if c1 > c2 { 1 } else { -1 };
-                    }
-
-                    char1 = p1.next();
-                    char2 = p2.next();
+            // Как C# в unchecked-контексте: переполнение `int` оборачивается
+            while p1 < s1.len() {
+                let digit = s1[p1];
+                if !is_ascii_digit(digit) {
+                    break;
                 }
+                num1 = num1.wrapping_mul(10).wrapping_add(i32::from(digit - ZERO));
+                p1 += 1;
             }
-            (None, None) => return 0,
-            (Some(_), None) => return 1,
-            (None, Some(_)) => return -1,
+
+            while p2 < s2.len() {
+                let digit = s2[p2];
+                if !is_ascii_digit(digit) {
+                    break;
+                }
+                num2 = num2.wrapping_mul(10).wrapping_add(i32::from(digit - ZERO));
+                p2 += 1;
+            }
+
+            if num1 != num2 {
+                return if num1 > num2 { 1 } else { -1 };
+            }
+        } else if char1 != char2 {
+            return if char1 > char2 { 1 } else { -1 };
         }
     }
 
-    // Проверяем, закончились ли обе строки
-    // if p2.next().is_none() { 0 } else { -1 }
+    if p2 == s2.len() { 0 } else { -1 }
+}
+
+#[inline]
+fn is_ascii_digit(value: u16) -> bool {
+    value >= u16::from(b'0') && value <= u16::from(b'9')
 }

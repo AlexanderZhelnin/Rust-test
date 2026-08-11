@@ -8,9 +8,9 @@ fn clip_left(coords: &[f64], left: f64) -> Vec<Vec<f64>> {
     }
 
     // Предварительно вычисляем значения
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
-    let mut pl = Vec::with_capacity(coords.len());
+    let mut pl = Vec::with_capacity(coords.len() * 2);
 
     if px1 >= left {
         pl.push(px1);
@@ -38,6 +38,7 @@ fn clip_left(coords: &[f64], left: f64) -> Vec<Vec<f64>> {
             res.push(pl);
             pl = Vec::with_capacity(coords.len());
         }
+        (px1, py1) = (px2, py2);
     }
 
     if !pl.is_empty() {
@@ -54,7 +55,7 @@ fn clip_right(coords: &[f64], right: f64) -> Vec<Vec<f64>> {
         return res;
     }
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
     let mut pl = Vec::with_capacity(coords.len());
 
@@ -83,6 +84,8 @@ fn clip_right(coords: &[f64], right: f64) -> Vec<Vec<f64>> {
             res.push(pl);
             pl = Vec::with_capacity(coords.len());
         }
+
+        (px1, py1) = (px2, py2);
     }
 
     if !pl.is_empty() {
@@ -99,9 +102,9 @@ fn clip_bottom(coords: &[f64], bottom: f64) -> Vec<Vec<f64>> {
         return res;
     }
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
-    let mut pl = Vec::with_capacity(coords.len());
+    let mut pl = Vec::with_capacity(coords.len() * 2);
 
     if py1 >= bottom {
         pl.push(px1);
@@ -128,6 +131,8 @@ fn clip_bottom(coords: &[f64], bottom: f64) -> Vec<Vec<f64>> {
             res.push(pl);
             pl = Vec::with_capacity(coords.len());
         }
+
+        (px1, py1) = (px2, py2);
     }
 
     if !pl.is_empty() {
@@ -144,9 +149,9 @@ fn clip_top(coords: &[f64], top: f64) -> Vec<Vec<f64>> {
         return res;
     }
 
-    let (px1, py1) = (coords[0], coords[1]);
+    let (mut px1, mut py1) = (coords[0], coords[1]);
 
-    let mut pl = Vec::with_capacity(coords.len());
+    let mut pl = Vec::with_capacity(coords.len() * 2);
 
     if py1 <= top {
         pl.push(px1);
@@ -173,6 +178,8 @@ fn clip_top(coords: &[f64], top: f64) -> Vec<Vec<f64>> {
             res.push(pl);
             pl = Vec::with_capacity(coords.len());
         }
+
+        (px1, py1) = (px2, py2);
     }
 
     if !pl.is_empty() {
@@ -191,7 +198,7 @@ pub fn clip_polyline(g: &Primitive, rect: &Rect) -> Vec<Vec<f64>> {
     };
 
     if g.rect.bottom < rect.bottom {
-        let mut tmp = Vec::new();
+        let mut tmp = Vec::with_capacity(res.len() * 2);
         for cs in &res {
             tmp.extend(clip_bottom(cs, rect.bottom));
         }
@@ -199,7 +206,7 @@ pub fn clip_polyline(g: &Primitive, rect: &Rect) -> Vec<Vec<f64>> {
     }
 
     if g.rect.right > rect.right {
-        let mut tmp = Vec::new();
+        let mut tmp = Vec::with_capacity(res.len() * 2);
         for cs in &res {
             tmp.extend(clip_right(cs, rect.right));
         }
@@ -207,7 +214,7 @@ pub fn clip_polyline(g: &Primitive, rect: &Rect) -> Vec<Vec<f64>> {
     }
 
     if g.rect.top > rect.top {
-        let mut tmp = Vec::new();
+        let mut tmp = Vec::with_capacity(res.len() * 2);
         for cs in &res {
             tmp.extend(clip_top(cs, rect.top));
         }
