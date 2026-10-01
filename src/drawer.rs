@@ -1,7 +1,12 @@
-use crate::calc::{optimize, translate};
-use crate::models::{DrawProperties1, GrType, ILayer, IObraz, Legend, Rect};
+use crate::arena::allocator::ArenaAllocator;
+use crate::arena::memory::ArenaMemory;
+use crate::calc::{optimize, optimize_blazing, translate};
+use crate::models::{
+    DrawProperties1, GrType, Layer, LayerResultBlazing, Legend, Obraz, ObrazResultBlazing, Rect,
+};
 use crate::polygon::clip_polygon;
 use crate::polyline::clip_polyline;
+
 use std::sync::Arc;
 
 /// Лениво передаёт каждый отсечённый образ потребителю, как C# `yield return`.
@@ -43,11 +48,7 @@ fn visit_clipped_primitives(l: &Legend, rect: &Rect, mut emit: impl FnMut(Vec<f6
 
 /// Ленивый аналог C# `BuildGenerator`: каждый слой строится только тогда,
 /// когда потребитель запрашивает следующий элемент
-pub fn build_iter(
-    ls: &[Legend],
-    pr: &DrawProperties1,
-    rect: &Rect,
-) -> impl Iterator<Item = ILayer> {
+pub fn build_iter(ls: &[Legend], pr: &DrawProperties1, rect: &Rect) -> impl Iterator<Item = Layer> {
     let mashtab = 1.0 / pr.scale;
 
     ls.iter().filter_map(move |l| {
@@ -64,21 +65,105 @@ pub fn build_iter(
             let mut cs_opt = optimize(coords, mashtab);
             translate(&mut cs_opt, pr);
 
-            mas.push(IObraz {
+            mas.push(Obraz {
                 name,
                 coords: cs_opt,
             });
         });
 
-        Some(ILayer {
+        Some(Layer {
             legend_id: l.id,
             obrazes: mas,
         })
     })
 }
 
+/// Ленивый аналог C# `BuildGenerator`: каждый слой строится только тогда,
+/// когда потребитель запрашивает следующий элемент
+pub fn build_blazing(
+    ls: &[Legend],
+    allocator_f64: &mut ArenaAllocator<f64>,
+    allocator_obrazes: &mut ArenaAllocator<ObrazResultBlazing>,
+    allocator_layers: &mut ArenaAllocator<LayerResultBlazing>,
+    pr: &DrawProperties1,
+    rect: &Rect,
+) -> ArenaMemory<LayerResultBlazing> {
+    let distance = pr.scale;
+
+    let mut result = allocator_layers.alloc(ls.len());
+    let mut sp = result.as_mut_slice();
+    let mut count = 0usize;
+
+    let (left, top, right, bottom) = (rect.left, rect.top, rect.right, rect.bottom);
+
+    for i in 0..ls.len() {
+        let l = &ls[i];
+
+        if l.mashtab_range.min > pr.mashtab || l.mashtab_range.max < pr.mashtab {
+            continue;
+        }
+
+        let mut mas = allocator_obrazes.alloc(l.primitives.len());
+        let mut g_sp = mas.as_mut_slice();
+
+        let mut index = 0usize;
+
+        for j in 0..l.primitives.len() {
+            let g = &l.primitives[j];
+            let r = g.rect;
+
+            if r.left >= left && r.bottom >= bottom && r.right <= right && r.top <= top {
+                // Целиком лежит внутри прямоугольника
+                let mut coords = optimize_blazing(&g.coords, allocator_f64, distance);
+                translate(coords.as_mut_slice(), pr);
+                g_sp[index] = ObrazResultBlazing {
+                    name: g.name.clone(),
+                    coords,
+                };
+                index += 1;
+            } else {
+                // Необходимо отсекать
+                match l.gr_type {
+                    GrType::Line => {
+                        for cs in clip_polyline(g, rect) {
+                            let mut coords = optimize_blazing(&cs, allocator_f64, distance);
+                            translate(coords.as_mut_slice(), pr);
+                            g_sp[index] = ObrazResultBlazing {
+                                name: g.name.clone(),
+                                coords,
+                            };
+                            index += 1;
+                        }
+                    }
+                    GrType::Polygon => {
+                        let cs = clip_polygon(g, rect);
+                        if !cs.is_empty() {
+                            let mut coords = optimize_blazing(&cs, allocator_f64, distance);
+                            translate(coords.as_mut_slice(), pr);
+                            g_sp[index] = ObrazResultBlazing {
+                                name: g.name.clone(),
+                                coords,
+                            };
+                            index += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        sp[count] = LayerResultBlazing {
+            legend_id: l.id,
+            obrazes: mas.sub(0..index),
+        };
+        count += 1;
+    }
+
+    result.sub(0..count)
+}
+
 /// Eager-вариант для `/mapJSON`, соответствующий C# `Drawer.Build`
-pub fn build(ls: &[Legend], pr: &DrawProperties1, rect: &Rect) -> Vec<ILayer> {
+pub fn build(ls: &[Legend], pr: &DrawProperties1, rect: &Rect) -> Vec<Layer> {
     let mut result = Vec::with_capacity(ls.len());
     result.extend(build_iter(ls, pr, rect));
     result

@@ -16,7 +16,7 @@ cargo xtask pgo
 
 Результат на Windows:
 
-```text
+```bash
 target/pgo/api_test-pgo.exe
 ```
 

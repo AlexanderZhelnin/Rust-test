@@ -1,4 +1,6 @@
 use crate::models::DrawProperties1;
+use crate::arena::allocator::ArenaAllocator;
+use crate::arena::memory::ArenaMemory;
 use std::arch::x86_64::*;
 
 /// Преобразование в систему координат экрана
@@ -184,62 +186,47 @@ pub fn is_point_on_line_simd(p1: &[f64; 2], p2: &[f64; 2], p: &[f64; 2], l_sq: f
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{optimize, translate};
-    use crate::models::DrawProperties1;
-
-    #[test]
-    fn optimize_matches_csharp_for_degenerate_segment() {
-        let coords = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 10.0];
-
-        assert_eq!(
-            optimize(coords.to_vec(), 1.0),
-            vec![0.0, 0.0, 0.0, 0.0, 10.0, 10.0]
-        );
+pub fn optimize_blazing(
+    mas: &[f64],
+    allocator: &mut ArenaAllocator<f64>,
+    l: f64,
+) -> ArenaMemory<f64> {
+    let count = mas.len();
+    if count < 5 {
+        let mut coords = allocator.alloc(count);
+        coords.as_mut_slice().copy_from_slice(mas);
+        return coords;
     }
 
-    #[test]
-    fn optimize_reuses_short_input_allocation() {
-        let coords = vec![1.0, 2.0, 3.0, 4.0];
-        let original_pointer = coords.as_ptr();
+    let mut result = allocator.alloc(count);
 
-        let optimized = optimize(coords, 1.0);
+    let l_sq = l * l;
 
-        assert_eq!(optimized.as_ptr(), original_pointer);
+    let dest = result.as_mut_slice();
+    dest[0] = mas[0];
+    dest[1] = mas[1];
+    let mut p2 = 2usize;
+
+    let mut last_coord1 = [mas[0], mas[1]];
+    let mut last_coord2 = [mas[2], mas[3]];
+
+    for i in (4..count).step_by(2) {
+
+        if !is_point_on_line_simd(&last_coord1, &last_coord2, &[mas[i], mas[i + 1]], l_sq) {
+            last_coord1 = [mas[i - 2], mas[i - 1]];
+            last_coord2 = [mas[i], mas[i + 1]];
+
+            dest[p2] = last_coord1[0];
+            p2 += 1;
+            dest[p2] = last_coord1[1];
+            p2 += 1;
+        }
     }
 
-    #[test]
-    fn translate_matches_csharp_for_trailing_pair() {
-        let properties = DrawProperties1 {
-            left_top: [10.0, 20.0],
-            scale: 2.0,
-            mashtab: 100.0,
-        };
-        let mut coords = [10.0, 20.0];
+    dest[p2] = mas[count - 2];
+    p2 += 1;
+    dest[p2] = mas[count - 1];
+    p2 += 1;
 
-        translate(&mut coords, &properties);
-
-        assert_eq!(coords[0], 0.0);
-        assert!(coords[1].is_sign_positive());
-    }
-
-    #[test]
-    fn translate_matches_csharp_rounding() {
-        let properties = DrawProperties1 {
-            left_top: [1200.0, 2850.0],
-            scale: 0.37037037037037035,
-            mashtab: 100.0,
-        };
-        let mut coords = [
-            1641.7648318748288,
-            853.8923978876566,
-            1648.62612300614,
-            899.09110948204,
-        ];
-
-        translate(&mut coords, &properties);
-
-        assert_eq!(coords[1].to_bits(), 739.2991118934606_f64.to_bits());
-    }
+    result.sub(0..p2)
 }

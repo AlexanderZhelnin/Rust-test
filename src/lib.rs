@@ -6,3 +6,4 @@ pub mod models;
 pub mod polygon;
 pub mod polyline;
 pub mod strings;
+pub mod arena;

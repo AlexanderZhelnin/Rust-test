@@ -1,3 +1,4 @@
+mod arena;
 mod calc;
 mod drawer;
 mod init;
@@ -7,11 +8,13 @@ mod polygon;
 mod polyline;
 mod strings;
 
+use api_test::drawer::build_blazing;
 use axum::{Json, Router, extract::Query, response::Response, routing::get};
 use drawer::{build, build_iter};
 use init::init_data;
-use models::{DrawProperties1, Legend, Rect };
-use std::sync::OnceLock;
+use models::{DrawProperties1, LayerResultBlazing, Legend, ObrazResultBlazing, Rect};
+// use tokio::time::sleep;
+use std::{ops::DerefMut, sync::OnceLock, time::Duration};
 use widestring::{U16Str, U16String, u16str};
 // use utoipa::{OpenApi, ToSchema, path};
 
@@ -79,21 +82,6 @@ fn get_data() -> (&'static [Legend], &'static Rect) {
     (legends.as_slice(), rect)
 }
 
-/// Эндпоинт для чтения файла
-// #[utoipa::path(
-//     get,
-//     path = "/readfile",
-//     responses((status = 200, description = "Данные прочитанного файла", body = String))
-// )]
-// async fn read_file() -> (StatusCode, String) {
-//     // Как `File.ReadAllTextAsync` в C#: асинхронное чтение не блокирует
-//     // рабочий поток HTTP-сервера на время файловой операции
-//     match tokio::fs::read_to_string("data.txt").await {
-//         Ok(content) => (StatusCode::OK, content),
-//         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Ошибка: {}", e)),
-//     }
-// }
-
 /// Эндпоинт для вычисления числа Фибоначчи (оптимизировано)
 // #[utoipa::path(
 //     get,
@@ -150,6 +138,48 @@ async fn map_query(Query(query): Query<MapQuery>) -> Json<i32> {
     Json(result)
 }
 
+/// Получение преобразованных геоданных (без реального ответа) Blazing Версия
+fn map_blazing_work(query: MapQuery) -> i32 {
+    let x = query.x / 100.0;
+    let y = query.y / 100.0;
+
+    let (legends, rect) = get_data();
+
+    let pr1 = DrawProperties1 {
+        left_top: [rect.left + x, rect.top + y],
+        scale: 0.37037037037037035,
+        mashtab: 100.0,
+    };
+
+    let rect1 = Rect {
+        left: rect.left + x,
+        top: rect.top + y,
+        bottom: rect.bottom,
+        right: rect.right,
+    };
+
+    let mut allocator_f64 = arena::ArenaAllocator::<f64>::get();
+    let mut allocator_obrazes = arena::ArenaAllocator::<ObrazResultBlazing>::get();
+    let mut allocator_layers = arena::ArenaAllocator::<LayerResultBlazing>::get();
+
+    build_blazing(
+        legends,
+        &mut allocator_f64,
+        &mut allocator_obrazes,
+        &mut allocator_layers,
+        &pr1,
+        &rect1,
+    )
+    .len() as i32
+}
+
+/// Эндпоинт для получения преобразованных геоданных (без реального ответа)
+async fn map_blazing_query(Query(query): Query<MapQuery>) -> Json<i32> {
+    let result = run_on_cpu_pool(move || map_blazing_work(query)).await;
+
+    Json(result)
+}
+
 /// Получение преобразованных геоданных с JSON ответом
 fn map_json_work(query: MapQuery) -> Vec<u8> {
     let x = query.x / 100.0;
@@ -179,13 +209,47 @@ fn map_json_work(query: MapQuery) -> Vec<u8> {
 }
 
 /// Эндпоинт для получения преобразованных геоданных с JSON ответом
-// #[utoipa::path(
-//     get,
-//     path = "/mapJSON",
-//     responses((status = 200, description = "Получение преобразованных геоданных", body = JsonLayers))
-// )]
 async fn map_json_query(Query(query): Query<MapQuery>) -> Response {
     let body = run_on_cpu_pool(move || map_json_work(query)).await;
+
+    json_response::from_bytes(body)
+}
+
+/// Получение преобразованных геоданных с JSON ответом Blazing версия
+fn map_json_blazing_work(query: MapQuery) -> Vec<u8> {
+    let x = query.x / 100.0;
+    let y = query.y / 100.0;
+
+    let (legends, rect) = get_data();
+
+    let pr1 = DrawProperties1 {
+        left_top: [rect.left + x, rect.top + y],
+        scale: 0.37037037037037035,
+        mashtab: 100.0,
+    };
+
+    let rect1 = Rect {
+        left: rect.left + x,
+        top: rect.top + y,
+        bottom: rect.bottom,
+        right: rect.right,
+    };
+
+    let mut double_arena = arena::ArenaAllocator::<f64>::get();
+    let mut obraz_arena = arena::ArenaAllocator::<ObrazResultBlazing>::get();
+    let mut layer_arena = arena::ArenaAllocator::<LayerResultBlazing>::get();
+
+    let result = build(legends, &pr1, &rect1);
+
+    // Как и C# Take(5): вычисляем все слои и сохраняем исходный массив живым
+    // до конца сериализации, но в JSON передаём только первые пять
+    let limited_result = result.get(..5).unwrap_or(&result);
+    json_response::serialize(limited_result)
+}
+
+/// Эндпоинт для получения преобразованных геоданных с JSON ответом Blazing версия
+async fn map_json_blazing_query(Query(query): Query<MapQuery>) -> Response {
+    let body = run_on_cpu_pool(move || map_json_blazing_work(query)).await;
 
     json_response::from_bytes(body)
 }
@@ -336,17 +400,19 @@ async fn main() {
         // .route("/readfile", get(read_file))
         .route("/fibonacci", get(fibonacci))
         .route("/map", get(map_query))
+        .route("/mapBlazing", get(map_blazing_query))
         .route("/mapJSON", get(map_json_query))
+        .route("/mapJSONBlzing", get(map_json_blazing_query))
         .route("/naturalsort", get(natural_sort))
         .route("/naturalsortHack", get(natural_sort_hack));
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();
-    if std::env::var_os("API_TEST_PGO_TRAINING").is_some() {
-        tokio::select! {
-            result = axum::serve(listener, app) => result.unwrap(),
-            _ = wait_for_pgo_training_shutdown() => {}
-        }
-    } else {
-        axum::serve(listener, app).await.unwrap();
-    }
+    // if std::env::var_os("API_TEST_PGO_TRAINING").is_some() {
+    //     tokio::select! {
+    //         result = axum::serve(listener, app) => result.unwrap(),
+    //         _ = wait_for_pgo_training_shutdown() => {}
+    //     }
+    // } else {
+    axum::serve(listener, app).await.unwrap();
+    // }
 }

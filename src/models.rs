@@ -4,7 +4,11 @@ use serde_repr::*;
 // use utoipa::ToSchema;
 use std::sync::Arc;
 
-// Типы графических образов (GrTypeEnum)
+use serde::ser::Serializer;
+
+use crate::arena::memory::ArenaMemory;
+
+/// Типы графических образов (GrTypeEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum GrType {
@@ -23,7 +27,7 @@ pub enum GrType {
     Circle = 13,
 }
 
-// Стиль границы (BorderStyleEnum)
+/// Стиль границы (BorderStyleEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum BorderStyle {
@@ -33,7 +37,7 @@ pub enum BorderStyle {
     Textured = 3,
 }
 
-// Стиль заливки (FillStyleEnum)
+/// Стиль заливки (FillStyleEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum FillStyle {
@@ -44,7 +48,7 @@ pub enum FillStyle {
     Hatch = 5,
 }
 
-// Ориентация градиента (GradientStyle)
+/// Ориентация градиента (GradientStyle)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum GradientStyle {
@@ -58,7 +62,7 @@ pub enum GradientStyle {
     LeftTop2RightBottom,
 }
 
-// Выравнивание текста (TextPositionEnum)
+/// Выравнивание текста (TextPositionEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(i8)]
 pub enum TextPosition {
@@ -82,7 +86,7 @@ pub enum TextPosition {
     BottomMiddleInner = -8,
 }
 
-// Стиль шрифта (FontStyleEnum)
+/// Стиль шрифта (FontStyleEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum FontStyle {
@@ -93,7 +97,7 @@ pub enum FontStyle {
     Strikeout = 0x8,
 }
 
-// Диапазон масштаба
+/// Диапазон масштаба
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MashtabRange {
     pub min: f64,
@@ -106,7 +110,7 @@ impl Default for MashtabRange {
     }
 }
 
-// Блок легенды
+/// Блок легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LegendBlock {
     pub id: i64,
@@ -124,7 +128,7 @@ impl Default for LegendBlock {
     }
 }
 
-// Заливка легенды
+/// Заливка легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegendFill {
@@ -149,7 +153,7 @@ impl Default for LegendFill {
     }
 }
 
-// Граница легенды
+/// Граница легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LegendBorder {
     pub color: String,
@@ -169,7 +173,7 @@ impl Default for LegendBorder {
     }
 }
 
-// Шрифт легенды
+/// Шрифт легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LegendFont {
     pub family: String,
@@ -187,7 +191,7 @@ impl Default for LegendFont {
     }
 }
 
-// Текст легенды
+/// Текст легенды
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegendText {
@@ -216,7 +220,7 @@ impl Default for LegendText {
     }
 }
 
-// Графический примитив
+/// Графический примитив
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Primitive {
@@ -241,7 +245,7 @@ impl Default for Primitive {
     }
 }
 
-// Прямоугольник
+/// Прямоугольник
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
     pub left: f64,
@@ -261,7 +265,7 @@ impl Default for Rect {
     }
 }
 
-// Свойства отрисовки с координатами (DrawProperties1)
+/// Свойства отрисовки с координатами (DrawProperties1)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DrawProperties1 {
     pub left_top: [f64; 2],
@@ -279,14 +283,14 @@ impl Default for DrawProperties1 {
     }
 }
 
-// Графический образ (IObraz)
+/// Графический образ (IObraz)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // ToSchema
-pub struct IObraz {
+pub struct Obraz {
     pub name: Arc<str>,
     pub coords: Vec<f64>,
 }
 
-impl Default for IObraz {
+impl Default for Obraz {
     fn default() -> Self {
         Self {
             name: Arc::from(""),
@@ -295,15 +299,15 @@ impl Default for IObraz {
     }
 }
 
-// Слой (ILayer)
+/// Слой (ILayer)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)] // ToSchema
 #[serde(rename_all = "camelCase")]
-pub struct ILayer {
+pub struct Layer {
     pub legend_id: i64,
-    pub obrazes: Vec<IObraz>,
+    pub obrazes: Vec<Obraz>,
 }
 
-// Легенда (ILegend)
+/// Легенда (ILegend)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Legend {
@@ -335,5 +339,29 @@ impl Default for Legend {
     }
 }
 
-// #[derive(Serialize, Deserialize, ToSchema)]
-// pub struct JsonLayers(Vec<ILayer>);
+/// Результирующий слой (blazing, на арене)
+#[derive(Debug, Clone)]
+// #[serde(rename_all = "camelCase")]
+pub struct LayerResultBlazing {
+    pub legend_id: i64,
+    pub obrazes: ArenaMemory<ObrazResultBlazing>,
+}
+
+/// Данные для отображения (blazing, на арене) (аналог C# `ObrazResultBlazing`)
+// #[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone)]
+pub struct ObrazResultBlazing {
+    pub name: Arc<str>,
+    pub coords: ArenaMemory<f64>,
+}
+
+
+impl Serialize for ObrazResultBlazing {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        serializer.serialize_i32(1)
+        // serializer.serialize_u32(self.id.to_string()) // Преобразуем age в строку
+    }
+}
