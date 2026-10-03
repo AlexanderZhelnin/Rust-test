@@ -2,7 +2,7 @@ use std::ops::{Deref, DerefMut, Range};
 
 /// Вид на область памяти арены
 #[derive(Clone, Copy)]
-pub struct ArenaMemory<T> {
+pub struct ArenaSlice<T> {
     ptr: *mut T,
     len: usize,
 }
@@ -10,10 +10,13 @@ pub struct ArenaMemory<T> {
 // Память принадлежит ArenaAllocator<T>, который живёт в пуле
 // и никогда не освобождает свои буферы. Точки не разделяются небезопасно
 // между потоками (арена используется в рамках одного запроса).
-unsafe impl<T: Send> Send for ArenaMemory<T> {}
-unsafe impl<T: Send> Sync for ArenaMemory<T> {}
+unsafe impl<T: Send> Send for ArenaSlice<T> {}
+unsafe impl<T: Send> Sync for ArenaSlice<T> {}
 
-impl<T> ArenaMemory<T> {
+impl<T> ArenaSlice<T> {
+    // pub fn new() -> Self {
+    //     ArenaSlice { ptr: Vec::new().as_mut_ptr(), len: 0 }
+    // }
     pub const unsafe fn from_raw(ptr: *mut T, len: usize) -> Self {
         Self { ptr, len }
     }
@@ -39,15 +42,15 @@ impl<T> ArenaMemory<T> {
     }
 
     #[inline]
-    pub fn sub(&self, range: Range<usize>) -> ArenaMemory<T> {
+    pub fn sub(&self, range: Range<usize>) -> ArenaSlice<T> {
         let start = range.start.min(self.len);
         let end = range.end.min(self.len);
         debug_assert!(start <= end, "invalid range for ArenaMemory::sub");
-        unsafe { ArenaMemory::from_raw(self.ptr.add(start), end - start) }
+        unsafe { ArenaSlice::from_raw(self.ptr.add(start), end - start) }
     }
 
     #[inline]
-    pub fn copy_to(&self, dest: &mut ArenaMemory<T>)
+    pub fn copy_to(&self, dest: &mut ArenaSlice<T>)
     where
         T: Copy,
     {
@@ -55,7 +58,7 @@ impl<T> ArenaMemory<T> {
     }
 }
 
-impl<T> Deref for ArenaMemory<T> {
+impl<T> Deref for ArenaSlice<T> {
     type Target = [T];
     #[inline]
     fn deref(&self) -> &[T] {
@@ -63,14 +66,14 @@ impl<T> Deref for ArenaMemory<T> {
     }
 }
 
-impl<T> DerefMut for ArenaMemory<T> {
+impl<T> DerefMut for ArenaSlice<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T> std::fmt::Debug for ArenaMemory<T>
+impl<T> std::fmt::Debug for ArenaSlice<T>
 where
     [T]: std::fmt::Debug,
 {

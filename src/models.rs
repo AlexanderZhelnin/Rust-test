@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde::ser::{SerializeSeq, Serializer};
 
-use crate::arena::memory::ArenaMemory;
+use crate::arena::arena_slice::ArenaSlice;
 
 /// Типы графических образов (GrTypeEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -344,18 +344,26 @@ impl Default for Legend {
 // #[serde(rename_all = "camelCase")]
 pub struct LayerResultBlazing {
     pub legend_id: i64,
-    pub obrazes: ArenaMemory<ObrazResultBlazing>,
+    pub obrazes: ArenaSlice<ObrazResultBlazing>,
 }
 
 /// Данные для отображения (blazing, на арене) (аналог C# `ObrazResultBlazing`)
-// #[derive(Clone, Copy, Debug)]
 #[derive(Debug, Clone, Serialize)]
 pub struct ObrazResultBlazing {
     pub name: Arc<str>,
-    pub coords: ArenaMemory<f64>,
+    pub coords: ArenaSlice<f64>,
 }
 
-impl<T> Serialize for ArenaMemory<T>
+// impl Default for ObrazResultBlazing {
+//     fn default() -> Self {
+//         Self {
+//             name: Arc::from(""),
+//             // coords: ArenaSlice::new(),
+//         }
+//     }
+// }
+
+impl<T> Serialize for ArenaSlice<T>
 where
     T: serde::ser::Serialize,
 {

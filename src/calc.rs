@@ -1,6 +1,6 @@
 use crate::models::DrawProperties1;
 use crate::arena::allocator::ArenaAllocator;
-use crate::arena::memory::ArenaMemory;
+use crate::arena::arena_slice::ArenaSlice;
 use std::arch::x86_64::*;
 
 /// Преобразование в систему координат экрана
@@ -190,7 +190,7 @@ pub fn optimize_blazing(
     mas: &[f64],
     allocator: &mut ArenaAllocator<f64>,
     l: f64,
-) -> ArenaMemory<f64> {
+) -> ArenaSlice<f64> {
     let count = mas.len();
     if count < 5 {
         let mut coords = allocator.alloc(count);

@@ -4,7 +4,7 @@ use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, OnceLock};
 
-use super::memory::ArenaMemory;
+use super::arena_slice::ArenaSlice;
 
 /// Начальный размер буфера
 const INITIAL_CAPACITY: usize = 256;
@@ -77,7 +77,7 @@ impl<T> ArenaAllocator<T> {
 
     /// Возвращает вид и стартовое смещение в буфере.
     #[inline]
-    pub fn alloc_with_start(&mut self, length: usize) -> (ArenaMemory<T>, usize) {
+    pub fn alloc_with_start(&mut self, length: usize) -> (ArenaSlice<T>, usize) {
         let new_count = self.count + length;
 
         if new_count > self.buffer.len() {
@@ -92,13 +92,13 @@ impl<T> ArenaAllocator<T> {
         let start = self.count;
         self.count = new_count;
         let mem = unsafe {
-            ArenaMemory::from_raw(self.buffer.as_mut_ptr().cast::<T>().add(start), length)
+            ArenaSlice::from_raw(self.buffer.as_mut_ptr().cast::<T>().add(start), length)
         };
         (mem, start)
     }
 
     #[inline]
-    pub fn alloc(&mut self, length: usize) -> ArenaMemory<T> {
+    pub fn alloc(&mut self, length: usize) -> ArenaSlice<T> {
         self.alloc_with_start(length).0
     }
 }

@@ -1,5 +1,5 @@
 use crate::arena::allocator::ArenaAllocator;
-use crate::arena::memory::ArenaMemory;
+use crate::arena::arena_slice::ArenaSlice;
 use crate::calc::{optimize, optimize_blazing, translate};
 use crate::models::{
     DrawProperties1, GrType, Layer, LayerResultBlazing, Legend, Obraz, ObrazResultBlazing, Rect,
@@ -87,7 +87,7 @@ pub fn build_blazing(
     allocator_layers: &mut ArenaAllocator<LayerResultBlazing>,
     pr: &DrawProperties1,
     rect: &Rect,
-) -> ArenaMemory<LayerResultBlazing> {
+) -> ArenaSlice<LayerResultBlazing> {
     let distance = pr.scale;
 
     let mut result = allocator_layers.alloc(ls.len());
@@ -115,9 +115,8 @@ pub fn build_blazing(
                 // Целиком лежит внутри прямоугольника
                 let mut coords = optimize_blazing(&g.coords, allocator_f64, distance);
                 translate(coords.as_mut_slice(), pr);
-                let g_name=  g.name.clone();
                 g_sp[index] = ObrazResultBlazing {
-                    name: g_name,
+                    name: "",//g.name.clone(),
                     coords,
                 };
                 index += 1;
