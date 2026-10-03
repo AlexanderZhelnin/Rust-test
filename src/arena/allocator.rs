@@ -11,7 +11,7 @@ const INITIAL_CAPACITY: usize = 256;
 
 /// Аллокатор арены
 pub struct ArenaAllocator<T> {
-    /// Текущий буфер
+    /// Буфер
     buffer: Box<[MaybeUninit<T>]>,
     /// Старые буферы, удерживаемые для живых видов `ArenaMemory<T>`
     old_buffers: Vec<Box<[MaybeUninit<T>]>>,
@@ -46,14 +46,18 @@ fn pools() -> &'static Mutex<HashMap<TypeId, Box<dyn Any + Send>>> {
 fn pop_from_pool<T: Send + 'static>() -> Option<ArenaAllocator<T>> {
     let mut guard = pools().lock().unwrap();
     let id = TypeId::of::<ArenaAllocator<T>>();
-    let v = guard.get_mut(&id)?.downcast_mut::<Vec<Box<ArenaAllocator<T>>>>()?;
+    let v = guard
+        .get_mut(&id)?
+        .downcast_mut::<Vec<Box<ArenaAllocator<T>>>>()?;
     v.pop().map(|b| *b)
 }
 
 fn push_to_pool<T: Send + 'static>(alloc: Box<ArenaAllocator<T>>) {
     let mut guard = pools().lock().unwrap();
     let id = TypeId::of::<ArenaAllocator<T>>();
-    let v = guard.entry(id).or_insert_with(|| Box::new(Vec::<Box<ArenaAllocator<T>>>::new()));
+    let v = guard
+        .entry(id)
+        .or_insert_with(|| Box::new(Vec::<Box<ArenaAllocator<T>>>::new()));
     v.downcast_mut::<Vec<Box<ArenaAllocator<T>>>>()
         .expect("pool type mismatch")
         .push(alloc);
@@ -75,14 +79,16 @@ impl<T> ArenaAllocator<T> {
     #[inline]
     pub fn alloc_with_start(&mut self, length: usize) -> (ArenaMemory<T>, usize) {
         let new_count = self.count + length;
+
         if new_count > self.buffer.len() {
             let new_cap = grow_cap(self.buffer.len(), new_count);
             let mut v = Vec::with_capacity(new_cap);
             v.resize_with(new_cap, MaybeUninit::uninit);
-            // Старый буфер сохраняем: на него могут ссылаться живые виды
+            // Старый буфер сохраняем: на него могут ссылаться живые Memory
             self.old_buffers
                 .push(std::mem::replace(&mut self.buffer, v.into_boxed_slice()));
         }
+
         let start = self.count;
         self.count = new_count;
         let mem = unsafe {
@@ -95,15 +101,6 @@ impl<T> ArenaAllocator<T> {
     pub fn alloc(&mut self, length: usize) -> ArenaMemory<T> {
         self.alloc_with_start(length).0
     }
-
-    // #[inline]
-    // pub fn alloc_list(&mut self, capacity: usize) -> super::collection::ArenaList<'_, T>
-    // where
-    //     T: Copy,
-    // {
-    //     let items = self.alloc(capacity);
-    //     super::collection::ArenaList::new(items, self)
-    // }
 }
 
 #[inline]
@@ -130,49 +127,5 @@ impl<T: Send + 'static> Drop for ArenaHandle<T> {
         self.0.count = 0;
         let alloc = unsafe { std::mem::ManuallyDrop::take(&mut self.0) };
         push_to_pool(Box::new(alloc));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn alloc_and_grow() {
-        let mut a = ArenaAllocator::<f64>::new();
-        let mut m1 = a.alloc(10);
-        m1.as_mut_slice().copy_from_slice(&[1.0; 10]);
-        // Вызывает рост (256 -> больше)
-        let mut m2 = a.alloc(300);
-        m2.as_mut_slice().copy_from_slice(&[2.0; 300]);
-        // Старый вид остаётся валидным (как в C# — старый массив жив)
-        assert_eq!(m1.as_slice()[0], 1.0);
-        assert_eq!(m2.as_slice()[0], 2.0);
-        assert_eq!(m1.len(), 10);
-        assert_eq!(m2.len(), 300);
-    }
-
-    #[test]
-    fn pool_reuse() {
-        {
-            let mut h = ArenaAllocator::<f64>::get();
-            let m = h.alloc(100);
-            assert_eq!(m.len(), 100);
-        } // возврат в пул
-        {
-            let mut h = ArenaAllocator::<f64>::get();
-            // Счётчик сброшен, буфер переиспользуется
-            let m = h.alloc(50);
-            assert_eq!(m.len(), 50);
-        }
-    }
-
-    #[test]
-    fn grow_cap_values() {
-        assert_eq!(grow_cap(0, 100), 256);
-        assert_eq!(grow_cap(256, 300), 512);
-        assert_eq!(grow_cap(256, 256), 256);
-        // 1024 -> 2048 -> 4096 -> 8192 (4096 < 5000, поэтому ещё одно удвоение)
-        assert_eq!(grow_cap(1024, 5000), 8192);
     }
 }

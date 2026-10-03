@@ -4,9 +4,7 @@ const ZERO: u16 = b'0' as u16;
 
 /// Натуральное сравнение строк
 #[inline]
-pub fn compare(s1: &U16Str, s2: &U16Str) -> i32 {
-    let s1 = s1.as_slice();
-    let s2 = s2.as_slice();
+pub fn compare(s1: &[u16], s2: &[u16]) -> i32 {
     let mut p1 = 0;
     let mut p2 = 0;
 
@@ -24,7 +22,6 @@ pub fn compare(s1: &U16Str, s2: &U16Str) -> i32 {
             let mut num1 = i32::from(char1 - ZERO);
             let mut num2 = i32::from(char2 - ZERO);
 
-            // Как C# в unchecked-контексте: переполнение `int` оборачивается
             while p1 < s1.len() {
                 let digit = s1[p1];
                 if !is_ascii_digit(digit) {

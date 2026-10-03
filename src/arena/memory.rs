@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut, Range};
 
-/// Вид на область памяти арены (аналог C# `Memory<T>`)
+/// Вид на область памяти арены
 #[derive(Clone, Copy)]
 pub struct ArenaMemory<T> {
     ptr: *mut T,

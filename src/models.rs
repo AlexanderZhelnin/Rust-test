@@ -4,7 +4,7 @@ use serde_repr::*;
 // use utoipa::ToSchema;
 use std::sync::Arc;
 
-use serde::ser::Serializer;
+use serde::ser::{SerializeSeq, Serializer};
 
 use crate::arena::memory::ArenaMemory;
 
@@ -340,7 +340,7 @@ impl Default for Legend {
 }
 
 /// Результирующий слой (blazing, на арене)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 // #[serde(rename_all = "camelCase")]
 pub struct LayerResultBlazing {
     pub legend_id: i64,
@@ -349,19 +349,26 @@ pub struct LayerResultBlazing {
 
 /// Данные для отображения (blazing, на арене) (аналог C# `ObrazResultBlazing`)
 // #[derive(Clone, Copy, Debug)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ObrazResultBlazing {
     pub name: Arc<str>,
     pub coords: ArenaMemory<f64>,
 }
 
-
-impl Serialize for ObrazResultBlazing {
+impl<T> Serialize for ArenaMemory<T>
+where
+    T: serde::ser::Serialize,
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: Serializer
+        S: Serializer,
     {
-        serializer.serialize_i32(1)
-        // serializer.serialize_u32(self.id.to_string()) // Преобразуем age в строку
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+
+        let array = self.as_slice();
+        for element in array {
+            seq.serialize_element(element)?;
+        }
+        seq.end()
     }
 }

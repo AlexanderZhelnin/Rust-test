@@ -8,13 +8,12 @@ mod polygon;
 mod polyline;
 mod strings;
 
-use api_test::drawer::build_blazing;
 use axum::{Json, Router, extract::Query, response::Response, routing::get};
-use drawer::{build, build_iter};
+use drawer::{build, build_blazing, build_iter};
 use init::init_data;
 use models::{DrawProperties1, LayerResultBlazing, Legend, ObrazResultBlazing, Rect};
 // use tokio::time::sleep;
-use std::{ops::DerefMut, sync::OnceLock, time::Duration};
+use std::sync::OnceLock;
 use widestring::{U16Str, U16String, u16str};
 // use utoipa::{OpenApi, ToSchema, path};
 
@@ -235,16 +234,23 @@ fn map_json_blazing_work(query: MapQuery) -> Vec<u8> {
         right: rect.right,
     };
 
-    let mut double_arena = arena::ArenaAllocator::<f64>::get();
-    let mut obraz_arena = arena::ArenaAllocator::<ObrazResultBlazing>::get();
-    let mut layer_arena = arena::ArenaAllocator::<LayerResultBlazing>::get();
+    let mut allocator_f64 = arena::ArenaAllocator::<f64>::get();
+    let mut allocator_obrazes = arena::ArenaAllocator::<ObrazResultBlazing>::get();
+    let mut allocator_layers = arena::ArenaAllocator::<LayerResultBlazing>::get();
 
-    let result = build(legends, &pr1, &rect1);
+    let result = build_blazing(
+        legends,
+        &mut allocator_f64,
+        &mut allocator_obrazes,
+        &mut allocator_layers,
+        &pr1,
+        &rect1,
+    );
 
     // Как и C# Take(5): вычисляем все слои и сохраняем исходный массив живым
     // до конца сериализации, но в JSON передаём только первые пять
-    let limited_result = result.get(..5).unwrap_or(&result);
-    json_response::serialize(limited_result)
+    let limited_result = result.sub(0..5.min(result.len()));
+    json_response::serialize(limited_result.as_slice())
 }
 
 /// Эндпоинт для получения преобразованных геоданных с JSON ответом Blazing версия
@@ -269,7 +275,7 @@ fn natural_sort_work() -> i32 {
         let mut s2 = U16String::with_capacity(SORT_PREFIX_2.len() + digits.len());
         write_sort_value(&mut s2, SORT_PREFIX_2, digits);
 
-        result += strings::compare(s1.as_ustr(), s2.as_ustr());
+        result += strings::compare(s1.as_slice(), s2.as_slice());
     }
 
     result
@@ -283,6 +289,52 @@ fn natural_sort_work() -> i32 {
 // )]
 async fn natural_sort() -> Json<i32> {
     let result = run_on_cpu_pool(natural_sort_work).await;
+
+    Json(result)
+}
+
+fn natural_sort_blazing_work() -> i32 {
+    let mut buf = itoa::Buffer::new();
+    let mut result = 0;
+
+    let (l1, l2) = (SORT_PREFIX_1.len() + 5, SORT_PREFIX_2.len() + 5);
+
+    let mut allocator = arena::ArenaAllocator::<u16>::get();
+
+    for i in 0..10_000 {
+        let digits = buf.format(i);
+
+        let mut s1 = allocator.alloc(l1);
+        let mut index1 = SORT_PREFIX_1.len();
+        let s1_slice = s1.as_mut_slice();
+
+        s1_slice[..SORT_PREFIX_1.len()].copy_from_slice(SORT_PREFIX_1.as_slice());
+
+        for &byte in digits.as_bytes() {
+            s1_slice[index1] = u16::from(byte);
+            index1 += 1;
+        }
+
+        let digits = buf.format(i);
+        let mut s2 = allocator.alloc(l2);
+        let mut index2 = SORT_PREFIX_2.len();
+        let s2_slice = s2.as_mut_slice();
+
+        s2_slice[..SORT_PREFIX_2.len()].copy_from_slice(SORT_PREFIX_2.as_slice());
+
+        for &byte in digits.as_bytes() {
+            s2_slice[index2] = u16::from(byte);
+            index2 += 1;
+        }
+
+        result += strings::compare(s1.sub(0..index1).as_slice(), s2.sub(0..index2).as_slice());
+    }
+
+    result
+}
+
+async fn natural_sort_blazing_query() -> Json<i32> {
+    let result = run_on_cpu_pool(natural_sort_blazing_work).await;
 
     Json(result)
 }
@@ -361,10 +413,7 @@ async fn natural_sort_hack() -> Json<i32> {
         let digits = buf.format(i);
         let s2_len = write_sort_stack(&mut s2, SORT_PREFIX_2, digits);
 
-        result += strings::compare(
-            U16Str::from_slice(&s1[..s1_len]),
-            U16Str::from_slice(&s2[..s2_len]),
-        );
+        result += strings::compare(&s1[..s1_len], &s2[..s2_len]);
     }
 
     Json(result)
@@ -402,8 +451,9 @@ async fn main() {
         .route("/map", get(map_query))
         .route("/mapBlazing", get(map_blazing_query))
         .route("/mapJSON", get(map_json_query))
-        .route("/mapJSONBlzing", get(map_json_blazing_query))
+        .route("/mapJSONBlazing", get(map_json_blazing_query))
         .route("/naturalsort", get(natural_sort))
+        .route("/naturalsortBlazing", get(natural_sort_blazing_query))
         .route("/naturalsortHack", get(natural_sort_hack));
 
     let listener = tokio::net::TcpListener::bind(listen_addr).await.unwrap();

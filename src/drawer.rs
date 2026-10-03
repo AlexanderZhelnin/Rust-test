@@ -96,28 +96,28 @@ pub fn build_blazing(
 
     let (left, top, right, bottom) = (rect.left, rect.top, rect.right, rect.bottom);
 
-    for i in 0..ls.len() {
-        let l = &ls[i];
-
+    // for i in 0..ls.len() {
+    //     let l = &ls[i];
+    for l in ls {
         if l.mashtab_range.min > pr.mashtab || l.mashtab_range.max < pr.mashtab {
             continue;
         }
 
         let mut mas = allocator_obrazes.alloc(l.primitives.len());
-        let mut g_sp = mas.as_mut_slice();
+        let g_sp = mas.as_mut_slice();
 
         let mut index = 0usize;
 
-        for j in 0..l.primitives.len() {
-            let g = &l.primitives[j];
+        for g in &l.primitives {
             let r = g.rect;
 
             if r.left >= left && r.bottom >= bottom && r.right <= right && r.top <= top {
                 // Целиком лежит внутри прямоугольника
                 let mut coords = optimize_blazing(&g.coords, allocator_f64, distance);
                 translate(coords.as_mut_slice(), pr);
+                let g_name=  g.name.clone();
                 g_sp[index] = ObrazResultBlazing {
-                    name: g.name.clone(),
+                    name: g_name,
                     coords,
                 };
                 index += 1;
