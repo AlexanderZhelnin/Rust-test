@@ -1,6 +1,9 @@
 use std::ops::{Deref, DerefMut, Range};
 
-/// Вид на область памяти арены
+use serde::ser::Serializer;
+use serde::Serialize;
+
+/// Вид на область памяти арены (аналог C# `Memory<T>`)
 #[derive(Clone, Copy)]
 pub struct ArenaSlice<T> {
     ptr: *mut T,
@@ -14,9 +17,6 @@ unsafe impl<T: Send> Send for ArenaSlice<T> {}
 unsafe impl<T: Send> Sync for ArenaSlice<T> {}
 
 impl<T> ArenaSlice<T> {
-    // pub fn new() -> Self {
-    //     ArenaSlice { ptr: Vec::new().as_mut_ptr(), len: 0 }
-    // }
     pub const unsafe fn from_raw(ptr: *mut T, len: usize) -> Self {
         Self { ptr, len }
     }
@@ -81,5 +81,17 @@ where
         f.debug_struct("ArenaMemory")
             .field("len", &self.len)
             .finish()
+    }
+}
+
+impl<T> Default for ArenaSlice<T> {
+    fn default() -> Self {
+        Self { ptr: std::ptr::dangling::<T>().cast_mut(), len: 0 }
+    }
+}
+
+impl<T: Serialize> Serialize for ArenaSlice<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.as_slice().iter())
     }
 }

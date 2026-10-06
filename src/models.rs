@@ -3,10 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_repr::*;
 // use utoipa::ToSchema;
 use std::sync::Arc;
+use std::ops::{Deref};
 
-use serde::ser::{SerializeSeq, Serializer};
-
-use crate::arena::arena_slice::ArenaSlice;
+use crate::arena::memory::ArenaSlice;
 
 /// Типы графических образов (GrTypeEnum)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize_repr, Deserialize_repr)]
@@ -284,19 +283,10 @@ impl Default for DrawProperties1 {
 }
 
 /// Графический образ (IObraz)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // ToSchema
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)] // ToSchema
 pub struct Obraz {
     pub name: Arc<str>,
     pub coords: Vec<f64>,
-}
-
-impl Default for Obraz {
-    fn default() -> Self {
-        Self {
-            name: Arc::from(""),
-            coords: Vec::new(),
-        }
-    }
 }
 
 /// Слой (ILayer)
@@ -340,43 +330,82 @@ impl Default for Legend {
 }
 
 /// Результирующий слой (blazing, на арене)
-#[derive(Debug, Clone, Serialize)]
-// #[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct LayerResultBlazing {
     pub legend_id: i64,
     pub obrazes: ArenaSlice<ObrazResultBlazing>,
 }
 
-/// Данные для отображения (blazing, на арене) (аналог C# `ObrazResultBlazing`)
-#[derive(Debug, Clone, Serialize)]
+/// Данные для отображения (blazing, на арене)
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ObrazResultBlazing {
     pub name: Arc<str>,
     pub coords: ArenaSlice<f64>,
 }
 
-// impl Default for ObrazResultBlazing {
-//     fn default() -> Self {
-//         Self {
-//             name: Arc::from(""),
-//             // coords: ArenaSlice::new(),
-//         }
-//     }
-// }
+//-------------------------------------------------------------
 
-impl<T> Serialize for ArenaSlice<T>
-where
-    T: serde::ser::Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+/// Результирующий слой (blazing, на арене)
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LayerResultBlazingPtr {
+    pub legend_id: i64,
+    pub obrazes: ArenaSlice<ObrazResultBlazingPtr>,
+}
 
-        let array = self.as_slice();
-        for element in array {
-            seq.serialize_element(element)?;
-        }
-        seq.end()
+#[derive(Clone, Copy)]
+pub struct PtrString {
+    ptr: *const u8,
+    len: usize,
+}
+
+unsafe impl Send for PtrString {}
+
+impl PtrString {
+    pub const unsafe fn from_raw(ptr: *const u8, len: usize) -> Self {
+        Self { ptr, len }
+    }
+    #[inline]
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(self.as_slice()) }
     }
 }
+
+impl Serialize for PtrString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl Default for PtrString {
+    fn default() -> Self {
+        Self { ptr: std::ptr::dangling::<u8>().cast_mut(), len: 0 }
+    }
+}
+
+impl Deref for PtrString {
+    type Target = str;
+    #[inline]
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+/// Данные для отображения (blazing, на арене)
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ObrazResultBlazingPtr {
+    pub name: PtrString,
+    pub coords: ArenaSlice<f64>,
+}
+// --------------------------------------------------------------------

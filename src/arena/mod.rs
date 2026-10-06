@@ -1,5 +1,5 @@
 pub mod allocator;
-pub mod arena_slice;
+pub mod memory;
 
-pub use allocator::{ArenaAllocator, ArenaHandle};
-pub use arena_slice::ArenaSlice;
+pub use allocator::ArenaAllocator;
+pub use memory::ArenaSlice;

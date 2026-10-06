@@ -1,8 +1,9 @@
 use crate::arena::allocator::ArenaAllocator;
-use crate::arena::arena_slice::ArenaSlice;
+use crate::arena::memory::ArenaSlice;
 use crate::calc::{optimize, optimize_blazing, translate};
 use crate::models::{
-    DrawProperties1, GrType, Layer, LayerResultBlazing, Legend, Obraz, ObrazResultBlazing, Rect,
+    DrawProperties1, GrType, Layer, LayerResultBlazing, LayerResultBlazingPtr, Legend, Obraz,
+    ObrazResultBlazing, ObrazResultBlazingPtr, PtrString, Rect,
 };
 use crate::polygon::clip_polygon;
 use crate::polyline::clip_polyline;
@@ -32,6 +33,7 @@ fn visit_clipped_primitives(l: &Legend, rect: &Rect, mut emit: impl FnMut(Vec<f6
                 GrType::Line => {
                     for cs in clip_polyline(g, rect) {
                         emit(cs, g.name.clone());
+
                     }
                 }
                 GrType::Polygon => {
@@ -91,13 +93,11 @@ pub fn build_blazing(
     let distance = pr.scale;
 
     let mut result = allocator_layers.alloc(ls.len());
-    let mut sp = result.as_mut_slice();
-    let mut count = 0usize;
+    let sp = result.as_mut_slice();
+    let mut count = 0;
 
     let (left, top, right, bottom) = (rect.left, rect.top, rect.right, rect.bottom);
 
-    // for i in 0..ls.len() {
-    //     let l = &ls[i];
     for l in ls {
         if l.mashtab_range.min > pr.mashtab || l.mashtab_range.max < pr.mashtab {
             continue;
@@ -106,7 +106,7 @@ pub fn build_blazing(
         let mut mas = allocator_obrazes.alloc(l.primitives.len());
         let g_sp = mas.as_mut_slice();
 
-        let mut index = 0usize;
+        let mut index = 0;
 
         for g in &l.primitives {
             let r = g.rect;
@@ -116,7 +116,7 @@ pub fn build_blazing(
                 let mut coords = optimize_blazing(&g.coords, allocator_f64, distance);
                 translate(coords.as_mut_slice(), pr);
                 g_sp[index] = ObrazResultBlazing {
-                    name: "",//g.name.clone(),
+                    name: g.name.clone(),
                     coords,
                 };
                 index += 1;
@@ -152,6 +152,85 @@ pub fn build_blazing(
         }
 
         sp[count] = LayerResultBlazing {
+            legend_id: l.id,
+            obrazes: mas.sub(0..index),
+        };
+        count += 1;
+    }
+
+    result.sub(0..count)
+}
+
+pub fn build_blazing_ptr(
+    ls: &[Legend],
+    allocator_f64: &mut ArenaAllocator<f64>,
+    allocator_obrazes: &mut ArenaAllocator<ObrazResultBlazingPtr>,
+    allocator_layers: &mut ArenaAllocator<LayerResultBlazingPtr>,
+    pr: &DrawProperties1,
+    rect: &Rect,
+) -> ArenaSlice<LayerResultBlazingPtr> {
+    let distance = pr.scale;
+
+    let mut result = allocator_layers.alloc(ls.len());
+    let sp = result.as_mut_slice();
+    let mut count = 0;
+
+    let (left, top, right, bottom) = (rect.left, rect.top, rect.right, rect.bottom);
+
+    for l in ls {
+        if l.mashtab_range.min > pr.mashtab || l.mashtab_range.max < pr.mashtab {
+            continue;
+        }
+
+        let mut mas = allocator_obrazes.alloc(l.primitives.len());
+        let g_sp = mas.as_mut_slice();
+
+        let mut index = 0;
+
+        for g in &l.primitives {
+            let r = g.rect;
+
+            if r.left >= left && r.bottom >= bottom && r.right <= right && r.top <= top {
+                // Целиком лежит внутри прямоугольника
+                let mut coords = optimize_blazing(&g.coords, allocator_f64, distance);
+                translate(coords.as_mut_slice(), pr);
+                g_sp[index] = ObrazResultBlazingPtr {
+                    name: unsafe { PtrString::from_raw(g.name.as_ptr(), g.name.len()) },
+                    coords,
+                };
+                index += 1;
+            } else {
+                // Необходимо отсекать
+                match l.gr_type {
+                    GrType::Line => {
+                        for cs in clip_polyline(g, rect) {
+                            let mut coords = optimize_blazing(&cs, allocator_f64, distance);
+                            translate(coords.as_mut_slice(), pr);
+                            g_sp[index] = ObrazResultBlazingPtr {
+                                name: unsafe { PtrString::from_raw(g.name.as_ptr(), g.name.len()) },
+                                coords,
+                            };
+                            index += 1;
+                        }
+                    }
+                    GrType::Polygon => {
+                        let cs = clip_polygon(g, rect);
+                        if !cs.is_empty() {
+                            let mut coords = optimize_blazing(&cs, allocator_f64, distance);
+                            translate(coords.as_mut_slice(), pr);
+                            g_sp[index] = ObrazResultBlazingPtr {
+                                name: unsafe { PtrString::from_raw(g.name.as_ptr(), g.name.len()) },
+                                coords,
+                            };
+                            index += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        sp[count] = LayerResultBlazingPtr {
             legend_id: l.id,
             obrazes: mas.sub(0..index),
         };

@@ -1,4 +1,3 @@
-use widestring::U16Str;
 
 const ZERO: u16 = b'0' as u16;
 

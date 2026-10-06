@@ -9,9 +9,9 @@ mod polyline;
 mod strings;
 
 use axum::{Json, Router, extract::Query, response::Response, routing::get};
-use drawer::{build, build_blazing, build_iter};
+use drawer::{build, build_blazing, build_iter, build_blazing_ptr};
 use init::init_data;
-use models::{DrawProperties1, LayerResultBlazing, Legend, ObrazResultBlazing, Rect};
+use models::{DrawProperties1, LayerResultBlazing, Legend, ObrazResultBlazing, Rect, ObrazResultBlazingPtr, LayerResultBlazingPtr};
 // use tokio::time::sleep;
 use std::sync::OnceLock;
 use widestring::{U16Str, U16String, u16str};
@@ -168,13 +168,53 @@ fn map_blazing_work(query: MapQuery) -> i32 {
         &mut allocator_layers,
         &pr1,
         &rect1,
-    )
-    .len() as i32
+    ).len() as i32
 }
 
 /// Эндпоинт для получения преобразованных геоданных (без реального ответа)
 async fn map_blazing_query(Query(query): Query<MapQuery>) -> Json<i32> {
     let result = run_on_cpu_pool(move || map_blazing_work(query)).await;
+
+    Json(result)
+}
+
+/// Получение преобразованных геоданных (без реального ответа) Blazing Версия
+fn map_blazing_ptr_work(query: MapQuery) -> i32 {
+    let x = query.x / 100.0;
+    let y = query.y / 100.0;
+
+    let (legends, rect) = get_data();
+
+    let pr1 = DrawProperties1 {
+        left_top: [rect.left + x, rect.top + y],
+        scale: 0.37037037037037035,
+        mashtab: 100.0,
+    };
+
+    let rect1 = Rect {
+        left: rect.left + x,
+        top: rect.top + y,
+        bottom: rect.bottom,
+        right: rect.right,
+    };
+
+    let mut allocator_f64 = arena::ArenaAllocator::<f64>::get();
+    let mut allocator_obrazes = arena::ArenaAllocator::<ObrazResultBlazingPtr>::get();
+    let mut allocator_layers = arena::ArenaAllocator::<LayerResultBlazingPtr>::get();
+
+    build_blazing_ptr(
+        legends,
+        &mut allocator_f64,
+        &mut allocator_obrazes,
+        &mut allocator_layers,
+        &pr1,
+        &rect1,
+    ).len() as i32
+}
+
+/// Эндпоинт для получения преобразованных геоданных (без реального ответа)
+async fn map_blazing_ptr_query(Query(query): Query<MapQuery>) -> Json<i32> {
+    let result = run_on_cpu_pool(move || map_blazing_ptr_work(query)).await;
 
     Json(result)
 }
@@ -250,12 +290,61 @@ fn map_json_blazing_work(query: MapQuery) -> Vec<u8> {
     // Как и C# Take(5): вычисляем все слои и сохраняем исходный массив живым
     // до конца сериализации, но в JSON передаём только первые пять
     let limited_result = result.sub(0..5.min(result.len()));
+
     json_response::serialize(limited_result.as_slice())
 }
 
 /// Эндпоинт для получения преобразованных геоданных с JSON ответом Blazing версия
 async fn map_json_blazing_query(Query(query): Query<MapQuery>) -> Response {
     let body = run_on_cpu_pool(move || map_json_blazing_work(query)).await;
+
+    json_response::from_bytes(body)
+}
+
+
+/// Получение преобразованных геоданных с JSON ответом Blazing версия
+fn map_json_blazing_ptr_work(query: MapQuery) -> Vec<u8> {
+    let x = query.x / 100.0;
+    let y = query.y / 100.0;
+
+    let (legends, rect) = get_data();
+
+    let pr1 = DrawProperties1 {
+        left_top: [rect.left + x, rect.top + y],
+        scale: 0.37037037037037035,
+        mashtab: 100.0,
+    };
+
+    let rect1 = Rect {
+        left: rect.left + x,
+        top: rect.top + y,
+        bottom: rect.bottom,
+        right: rect.right,
+    };
+
+    let mut allocator_f64 = arena::ArenaAllocator::<f64>::get();
+    let mut allocator_obrazes = arena::ArenaAllocator::<ObrazResultBlazingPtr>::get();
+    let mut allocator_layers = arena::ArenaAllocator::<LayerResultBlazingPtr>::get();
+
+    let result = build_blazing_ptr(
+        legends,
+        &mut allocator_f64,
+        &mut allocator_obrazes,
+        &mut allocator_layers,
+        &pr1,
+        &rect1,
+    );
+
+    // Как и C# Take(5): вычисляем все слои и сохраняем исходный массив живым
+    // до конца сериализации, но в JSON передаём только первые пять
+    let limited_result = result.sub(0..5.min(result.len()));
+
+    json_response::serialize(limited_result.as_slice())
+}
+
+/// Эндпоинт для получения преобразованных геоданных с JSON ответом Blazing версия
+async fn map_json_blazing_ptr_query(Query(query): Query<MapQuery>) -> Response {
+    let body = run_on_cpu_pool(move || map_json_blazing_ptr_work(query)).await;
 
     json_response::from_bytes(body)
 }
@@ -446,12 +535,13 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(root))
-        // .route("/readfile", get(read_file))
         .route("/fibonacci", get(fibonacci))
         .route("/map", get(map_query))
         .route("/mapBlazing", get(map_blazing_query))
+        .route("/mapBlazingPtr", get(map_blazing_ptr_query))
         .route("/mapJSON", get(map_json_query))
         .route("/mapJSONBlazing", get(map_json_blazing_query))
+        .route("/mapJSONBlazingPtr", get(map_json_blazing_ptr_query))
         .route("/naturalsort", get(natural_sort))
         .route("/naturalsortBlazing", get(natural_sort_blazing_query))
         .route("/naturalsortHack", get(natural_sort_hack));

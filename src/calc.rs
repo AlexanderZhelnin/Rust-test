@@ -1,6 +1,6 @@
-use crate::models::DrawProperties1;
+use crate::arena::ArenaSlice;
 use crate::arena::allocator::ArenaAllocator;
-use crate::arena::arena_slice::ArenaSlice;
+use crate::models::DrawProperties1;
 use std::arch::x86_64::*;
 
 /// Преобразование в систему координат экрана
@@ -211,7 +211,6 @@ pub fn optimize_blazing(
     let mut last_coord2 = [mas[2], mas[3]];
 
     for i in (4..count).step_by(2) {
-
         if !is_point_on_line_simd(&last_coord1, &last_coord2, &[mas[i], mas[i + 1]], l_sq) {
             last_coord1 = [mas[i - 2], mas[i - 1]];
             last_coord2 = [mas[i], mas[i + 1]];
